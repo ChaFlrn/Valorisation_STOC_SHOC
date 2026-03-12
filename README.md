@@ -5,6 +5,7 @@ Ce projet produit un rapport automatisé de l'évolution des saisies des donnée
 ## Arborescence du projet
 ### Fichier "Make.R"
 Lancer ce fichier après avoir téléchargé le zip du projet. Lancer les premiers scripts pour créer les fichiers intermédiaires dans processed_data.
+La dernière commande correspond à la création du rapport final.
 
 ### Assets
 Couche spatiale représentant les limites départementales de la région Nouvelle-Aquitaine. Ce fichier est utilisé dans le Rmarkdown permettant la génération du rapport, pour la réalisation de cartes.
