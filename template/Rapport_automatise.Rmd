@@ -190,6 +190,74 @@ strip.background = element_rect(
   )
 ```
 
+Evolution du nombre de carrés suivis annuellement depuis 2023 par les agents de l'OFB pour le **protocole STOC** : 
+
+```{r}
+tablo_stoc <- graph_carres_stoc %>%
+  pivot_wider(names_from = Annee,
+              values_from = nb_ofb) %>%
+  select(-Type)
+
+totaux_stoc <- tablo_stoc %>%
+  ungroup() %>%
+  summarise(Departement = "Total",
+            across(-Departement, sum, na.rm = TRUE))
+
+tablo_stoc <- bind_rows(tablo_stoc, totaux_stoc)
+  
+
+
+# Créer tableau pour rapport
+tablo_stoc <- tablo_stoc %>%
+  mutate(across(where(is.numeric), ~ format(., big.mark = " ", decimal.mark = ",", scientific = FALSE, trim = TRUE)))
+
+flextable(tablo_stoc) %>%
+  set_header_labels(
+    Departement = "Département") %>%
+  theme_vanilla() %>%
+  color(part = "header", color = "white") %>%
+  bg(part = "header", bg = "#333333") %>%
+  bold(part = "header") %>% 
+  align(j = colnames(tablo_stoc), align = "center", part = "all") %>% 
+  fontsize(part = "header", size = 10) %>%
+  fontsize(part = "body", size = 9) %>%
+  autofit()
+```
+
+Evolution du nombre de carrés suivis annuellement depuis 2023 par les agents de l'OFB pour le **protocole SHOC** : 
+
+```{r}
+tablo_shoc <- graph_carres_shoc %>%
+  pivot_wider(names_from = Annee,
+              values_from = nb_ofb) %>%
+  select(-Type)
+
+totaux_shoc <- tablo_shoc %>%
+  ungroup() %>%
+  summarise(Departement = "Total",
+            across(-Departement, sum, na.rm = TRUE))
+
+tablo_shoc <- bind_rows(tablo_shoc, totaux_shoc)
+  
+
+
+# Créer tableau pour rapport
+tablo_shoc <- tablo_shoc %>%
+  mutate(across(where(is.numeric), ~ format(., big.mark = " ", decimal.mark = ",", scientific = FALSE, trim = TRUE)))
+
+flextable(tablo_shoc) %>%
+  set_header_labels(
+    Departement = "Département") %>%
+  theme_vanilla() %>%
+  color(part = "header", color = "white") %>%
+  bg(part = "header", bg = "#333333") %>%
+  bold(part = "header") %>% 
+  align(j = colnames(tablo_shoc), align = "center", part = "all") %>% 
+  fontsize(part = "header", size = 10) %>%
+  fontsize(part = "body", size = 9) %>%
+  autofit()
+```
+
 
 ## Effort de prospection et suivi des carrés
 ### STOC
