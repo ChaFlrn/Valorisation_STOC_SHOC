@@ -781,19 +781,29 @@ rich_an_ofb <- rbind(rich_an_stoc_ofb, rich_an_shoc_ofb)
 
 
 ggplot(rich_an_ofb, aes(x = Annee, y = rich_moy, fill = Protocole)) +
-  geom_col(color = "grey30", width = 0.5, position = position_dodge(width = 0.5)) +
+  geom_col(color = "grey30", width = 0.5,
+           position = position_dodge(width = 0.5)) +
+  
+  geom_errorbar(aes(ymin = rich_moy - sd_moy,
+                    ymax = rich_moy + sd_moy),
+                width = 0.2,
+                position = position_dodge(width = 0.5)) +
+  
   geom_text(aes(label = rich_moy),
             vjust = -0.5,
             size = 5,
             fontface = "bold",
             position = position_dodge(width = 0.5)) +
+  
   labs(
     title = "Distribution de la richesse spécifique moyenne par carré et par année",
     x = "Année",
     y = "Nombre d'espèces différentes",
     fill = "Protocole") +
+  
   scale_fill_manual(values = colors_protocoles) +
   scale_x_continuous(breaks = sort(unique(rich_an_ofb$Annee))) +
+  
   theme_minimal() +
   theme(
     plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
@@ -804,6 +814,7 @@ ggplot(rich_an_ofb, aes(x = Annee, y = rich_moy, fill = Protocole)) +
     legend.title = element_blank())
 ```
 <br>
+
 
 Le tableau ci-dessous dresse les moyennes annuelles et écart-types de la richesse spécifique de `r min(data_stoc$Annee)` à `r max(data_stoc$Annee)`.
 
@@ -1098,7 +1109,8 @@ ggplot(graph_esp_shoc_ofb,
 tablo_dep <- data_stoc %>%
   st_set_geometry(NULL) %>%
   group_by(Departement) %>%
-  summarise(nb_carre = n_distinct(Carre)) %>%
+  summarise(nb_carre = n_distinct(Carre),
+            nb_obs = n_distinct(Agent)) %>%
   arrange(desc(nb_carre))
 
 tableau <- tablo_dep %>%
@@ -1106,18 +1118,19 @@ tableau <- tablo_dep %>%
 
   cols_label(
     Departement = "Département",
-    nb_carre = "Nombre de carrés"
+    nb_carre = "Nombre de carrés",
+    nb_obs = "Nombre d'agents"
   ) %>%
 
   fmt_number(
-    columns = nb_carre,
+    columns = c(nb_carre,nb_obs),
     sep_mark = " ",
     decimals = 0
   ) %>%
 
   cols_align(
     align = "center",
-    columns = nb_carre
+    columns = c(nb_carre,nb_obs)
   ) %>%
 
   tab_style(
@@ -1177,7 +1190,8 @@ carte_stoc + tableau
 tablo_dep_shoc <- data_shoc %>%
   st_set_geometry(NULL) %>%
   group_by(Departement) %>%
-  summarise(nb_carre = n_distinct(Carre)) %>%
+  summarise(nb_carre = n_distinct(Carre),
+            nb_obs = n_distinct(Agent)) %>%
   arrange(desc(nb_carre))
 
 tableau_shoc <- tablo_dep_shoc %>%
@@ -1185,18 +1199,19 @@ tableau_shoc <- tablo_dep_shoc %>%
 
   cols_label(
     Departement = "Département",
-    nb_carre = "Nombre de carrés"
+    nb_carre = "Nombre de carrés",
+    nb_obs = "Nombre d'agents"
   ) %>%
 
   fmt_number(
-    columns = nb_carre,
+    columns = c(nb_carre,nb_obs),
     sep_mark = " ",
     decimals = 0
   ) %>%
 
   cols_align(
     align = "center",
-    columns = nb_carre
+    columns = c(nb_carre, nb_obs)
   ) %>%
 
   tab_style(
