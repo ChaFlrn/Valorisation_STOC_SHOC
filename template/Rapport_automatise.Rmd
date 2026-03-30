@@ -130,7 +130,8 @@ Pour rappel, pour le protocole SHOC, un hiver correspond au mois de décembre de
 ```{r, fig.width=18, fig.height=16}
 graph_carres_stoc <- data_stoc %>%
   st_set_geometry(NULL) %>%
-  group_by(Departement, Annee) %>%
+  mutate(dep = substr(Carre, 1,2)) %>%
+  group_by(dep, Annee) %>%
   summarise(nb_total = n_distinct(Carre),
             nb_ofb = n_distinct(Carre[Source == "OFB"])) %>%
   mutate(Type = "STOC") %>%
@@ -139,8 +140,9 @@ graph_carres_stoc <- data_stoc %>%
 graph_carres_shoc <- data_shoc %>%
   st_set_geometry(NULL) %>%
   mutate(mois = month(Date),
-         Hiver = if_else(mois == 1, Annee - 1, Annee)) %>%
-  group_by(Departement, Hiver) %>%
+         Hiver = if_else(mois == 1, Annee - 1, Annee),
+         dep = substr(Carre, 1,2)) %>%
+  group_by(dep, Hiver) %>%
   summarise(nb_total = n_distinct(Carre),
             nb_ofb = n_distinct(Carre[Source == "OFB"])) %>%
   mutate(Type = "SHOC",
@@ -166,7 +168,7 @@ ggplot() +
     position = position_dodge2(width = 0.9),
     vjust = -0.3,
     size = 5) +
-  facet_wrap(~ Departement, scales = "fixed") +
+  facet_wrap(~ dep, scales = "fixed") +
   labs(
     title = "Evolution du nombre de carrés STOC et SHOC par an",
     x = "Année (ou Hiver pour SHOC)",
@@ -200,8 +202,8 @@ tablo_stoc <- graph_carres_stoc %>%
 
 totaux_stoc <- tablo_stoc %>%
   ungroup() %>%
-  summarise(Departement = "Total",
-            across(-Departement, sum, na.rm = TRUE))
+  summarise(dep = "Total",
+            across(-dep, sum, na.rm = TRUE))
 
 tablo_stoc <- bind_rows(tablo_stoc, totaux_stoc)
   
@@ -213,7 +215,7 @@ tablo_stoc <- tablo_stoc %>%
 
 flextable(tablo_stoc) %>%
   set_header_labels(
-    Departement = "Département") %>%
+    dep = "Département") %>%
   theme_vanilla() %>%
   color(part = "header", color = "white") %>%
   bg(part = "header", bg = "#333333") %>%
@@ -234,8 +236,8 @@ tablo_shoc <- graph_carres_shoc %>%
 
 totaux_shoc <- tablo_shoc %>%
   ungroup() %>%
-  summarise(Departement = "Total",
-            across(-Departement, sum, na.rm = TRUE))
+  summarise(dep = "Total",
+            across(-dep, sum, na.rm = TRUE))
 
 tablo_shoc <- bind_rows(tablo_shoc, totaux_shoc)
   
@@ -247,7 +249,7 @@ tablo_shoc <- tablo_shoc %>%
 
 flextable(tablo_shoc) %>%
   set_header_labels(
-    Departement = "Département") %>%
+    dep = "Département") %>%
   theme_vanilla() %>%
   color(part = "header", color = "white") %>%
   bg(part = "header", bg = "#333333") %>%
@@ -1108,7 +1110,8 @@ ggplot(graph_esp_shoc_ofb,
 ```{r}
 tablo_dep <- data_stoc %>%
   st_set_geometry(NULL) %>%
-  group_by(Departement) %>%
+  mutate(dep = substr(Carre, 1,2)) %>%
+  group_by(dep) %>%
   summarise(nb_carre = n_distinct(Carre),
             nb_obs = n_distinct(Agent)) %>%
   arrange(desc(nb_carre))
@@ -1117,7 +1120,7 @@ tableau <- tablo_dep %>%
   gt() %>%
 
   cols_label(
-    Departement = "Département",
+    dep = "Département",
     nb_carre = "Nombre de carrés",
     nb_obs = "Nombre d'agents"
   ) %>%
@@ -1130,7 +1133,7 @@ tableau <- tablo_dep %>%
 
   cols_align(
     align = "center",
-    columns = c(nb_carre,nb_obs)
+    columns = c(dep,nb_carre,nb_obs)
   ) %>%
 
   tab_style(
@@ -1142,7 +1145,7 @@ tableau <- tablo_dep %>%
   ) %>%
 
   cols_width(
-    Departement ~ px(140),
+    dep ~ px(140),
     nb_carre ~ px(100)
   ) %>%
 
@@ -1189,7 +1192,8 @@ carte_stoc + tableau
 ```{r}
 tablo_dep_shoc <- data_shoc %>%
   st_set_geometry(NULL) %>%
-  group_by(Departement) %>%
+  mutate(dep = substr(Carre, 1,2)) %>%
+  group_by(dep) %>%
   summarise(nb_carre = n_distinct(Carre),
             nb_obs = n_distinct(Agent)) %>%
   arrange(desc(nb_carre))
@@ -1198,7 +1202,7 @@ tableau_shoc <- tablo_dep_shoc %>%
   gt() %>%
 
   cols_label(
-    Departement = "Département",
+    dep = "Département",
     nb_carre = "Nombre de carrés",
     nb_obs = "Nombre d'agents"
   ) %>%
@@ -1211,7 +1215,7 @@ tableau_shoc <- tablo_dep_shoc %>%
 
   cols_align(
     align = "center",
-    columns = c(nb_carre, nb_obs)
+    columns = c(dep,nb_carre, nb_obs)
   ) %>%
 
   tab_style(
@@ -1223,7 +1227,7 @@ tableau_shoc <- tablo_dep_shoc %>%
   ) %>%
 
   cols_width(
-    Departement ~ px(140),
+    dep ~ px(140),
     nb_carre ~ px(100)
   ) %>%
 
@@ -1339,7 +1343,7 @@ suivis_shoc <- ggplot() +
 ```
 
 ```{r, fig.width=10, fig.height=14}
-suivis_stoc + suivis_shoc
+suivis_stoc / suivis_shoc
 
 ```
 

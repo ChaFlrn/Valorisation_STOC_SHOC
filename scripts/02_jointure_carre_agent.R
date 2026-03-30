@@ -128,7 +128,7 @@ data_shoc_agent <- data_shoc %>%
                      Insee_com,
                      Commune),
             by = c("Maille","Insee_com","Commune")) %>%
-  filter(!duplicated(Id))
+  distinct(Id, Carre, .keep_all = TRUE)
 
 
 data_stoc_agent <- data_stoc %>%
@@ -142,8 +142,7 @@ data_stoc_agent <- data_stoc %>%
                      Insee_com,
                      Commune),
             by = c("Maille","Insee_com","Commune")) %>%
-  filter(!duplicated(Id))
-
+  distinct(Id, Carre, .keep_all = TRUE)
 
 ###---------------------------------------------------------#
 cli::cli_h2("Sauvegarder les fichier") 
