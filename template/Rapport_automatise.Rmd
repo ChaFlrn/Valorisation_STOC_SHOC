@@ -49,22 +49,23 @@ library(gt)
 # Création des palettes de couleurs
 colors_protocoles <- c(
   "STOC" = "#CAF5B0",
+  "STOC_EPS" = "#CAF5B0",
   "SHOC" = "#DBB0F5")
 
 colors_suivi <- c(
   "Jamais suivi" = "grey80",
   "Abandonné" = "grey30",
-  "Bien suivi" = "green",
-  "Mal suivi" = "orange"
+  "Complet" = "green",
+  "Incomplet" = "orange"
 )
 
 colors_statut <- c(
   "Abandonné" = "black",
-  "Bien suivi" = "#447c00",
-  "Plutôt bien suivi" = "#a1ef42",
+  "Très complet" = "#447c00",
+  "Complet" = "#a1ef42",
   "Neutre" = "#fff608",
-  "Plutôt mal suivi" = "#fb9418",
-  "Mal suivi" = "#fb3518",
+  "Incomplet" = "#fb9418",
+  "Très incomplet" = "#fb3518",
   "Nouveau" = "#51b3de"
 )
 
@@ -88,7 +89,7 @@ Dans ce contexte, ce rapport présente une analyse qualitative et quantitative d
 # Présentation du jeu de données
 
 Les données sont issues de la démarche Faune-France, portail interassociatif de science participative, animé par la LPO en partenariat avec un réseau d’une cinquantaine d’associations de protection de la nature : https://www.faune-france.org. 
-*Date de l'extraction : 11/03/2026 (STOC et SHOC).*
+*Date de l'extraction : 30/03/2026 (STOC et SHOC).*
 
 Les protocoles ont été extraits individuellement, sur la période temporelle de janvier 2022 à mars 2026 afin d'avoir l'hiver 2025/2026 complet pour le protocole SHOC. 
 
@@ -96,19 +97,37 @@ Les protocoles ont été extraits individuellement, sur la période temporelle d
 **Seule la région Nouvelle-Aquitaine est concernée par ces données et le rapport fait état des chiffres et évolutions à l'échelle régionale exclusivement.**
 
 ```{r, fig.width=6, fig.height=4}
-tablo_data <- data.frame(
-  Protocole = c("STOC", "SHOC"),
-  Nombre_donnees = c(nrow(data_stoc), nrow(data_shoc)),
-  stringsAsFactors = FALSE)
+tablo_data_stoc <- data_stoc %>%
+  st_set_geometry(NULL) %>%
+  group_by(Protocole, Annee) %>%
+  summarise(nb_obs = n())
+  
+
+
+tablo_data_shoc <- data_shoc %>%
+  mutate(mois = month(Date),
+         Hiver = if_else(mois == 1, Annee - 1, Annee)) %>%
+  st_set_geometry(NULL) %>%
+  group_by(Protocole, Hiver) %>%
+  summarise(nb_obs = n()) %>%
+  mutate(Annee = Hiver) %>%
+  select(-Hiver)
+
+  
+tablo_data <- rbind(tablo_data_stoc,
+                    tablo_data_shoc) %>%
+  pivot_wider(
+    names_from = Annee,
+    values_from = nb_obs,
+    values_fill = 0  # remplace les NA par 0 si besoin
+  )
+
 
 # Créer tableau pour rapport
 tablo_data <- tablo_data %>%
   mutate(across(where(is.numeric), ~ format(., big.mark = " ", decimal.mark = ",", scientific = FALSE, trim = TRUE)))
 
 flextable(tablo_data) %>%
-  set_header_labels(
-    Protocole = "Protocole",
-    Nombre_donnees = "Nombre d'observations") %>%
   theme_vanilla() %>%
   color(part = "header", color = "white") %>%
   bg(part = "header", bg = "#333333") %>%
@@ -132,10 +151,8 @@ graph_carres_stoc <- data_stoc %>%
   st_set_geometry(NULL) %>%
   mutate(dep = substr(Carre, 1,2)) %>%
   group_by(dep, Annee) %>%
-  summarise(nb_total = n_distinct(Carre),
-            nb_ofb = n_distinct(Carre[Source == "OFB"])) %>%
-  mutate(Type = "STOC") %>%
-  select(-nb_total)
+  summarise(nb_ofb = n_distinct(Carre)) %>%
+  mutate(Type = "STOC")
 
 graph_carres_shoc <- data_shoc %>%
   st_set_geometry(NULL) %>%
@@ -143,12 +160,10 @@ graph_carres_shoc <- data_shoc %>%
          Hiver = if_else(mois == 1, Annee - 1, Annee),
          dep = substr(Carre, 1,2)) %>%
   group_by(dep, Hiver) %>%
-  summarise(nb_total = n_distinct(Carre),
-            nb_ofb = n_distinct(Carre[Source == "OFB"])) %>%
+  summarise(nb_ofb = n_distinct(Carre)) %>%
   mutate(Type = "SHOC",
          Annee = Hiver) %>%
-  select(-Hiver,
-         -nb_total)
+  select(-Hiver)
 
 graph_carres <- rbind(graph_carres_shoc,
                       graph_carres_stoc)
@@ -353,10 +368,10 @@ ggplot(tablo_long_ofb, aes(x = annee, y = nb_passages, fill = periode)) +
 En analysant les passages sur les périodes du protocole STOC, un état de suivi peut être déterminé :
 
 
-- **Bien suivi** : lorsqu'un passage est effectué pendant chaque période (mars, avril/mai et mai/juin).  
+- **Complet** : lorsqu'un passage est effectué pendant chaque période (mars, avril/mai et mai/juin).  
 
 
-- **Mal suivi** : lorsqu'il manque un passage pendant une des périodes obligatoires du protocole STOC.
+- **Incomplet** : lorsqu'il manque un passage pendant une des périodes obligatoires du protocole STOC.
 
 
 - **Abandonné** : lorsque les dernières observations remontent à plus de 2 ans.
@@ -391,21 +406,17 @@ passage_stoc_ofb <- data_stoc %>%
   mutate(
     classe_passage = case_when(
       (params$annee - derniere_an_passage) >= 2 ~ "Abandonné",
-      nb_passages_mars > 0 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Bien suivi",
-      Annee < 2022 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Bien suivi",
-      TRUE ~ "Mal suivi"
+      nb_passages_mars > 0 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Complet",
+      Annee < 2022 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Complet",
+      TRUE ~ "Incomplet"
     )
   )
 
 
-ggplot(passage_stoc_ofb, aes(x = Printemps, y = Carre, fill = classe_passage)) +
+ggplot(passage_stoc_ofb, aes(x = Printemps, y = as.character(Carre), fill = classe_passage)) +
   geom_tile(color = "grey90") +
   scale_fill_manual(
-    values = c(
-      "Mal suivi" = "orange",
-      "Bien suivi" = "green",
-      "Abandonné" = "grey30"
-    ),
+    values = colors_suivi,
     name = "Suivi"
   ) +
   theme_minimal() +
@@ -430,19 +441,19 @@ ggplot(passage_stoc_ofb, aes(x = Printemps, y = Carre, fill = classe_passage)) +
 Une étude plus fine de l'état de suivi des carrés est présentée dans le tableau suivant. Les classes de détermination de l'état de suivi sont plus nuancées sur l'ensemble des années considérées :
 
 
-- **Bien suivi** : chaque année le carré est considéré comme bien suivi
+- **Très complet** : chaque année le carré est considéré comme complet chaque année
 
 
-- **Plutôt bien suivi** : le carré présente une majorité de "bien suivi" au fil des années
+- **Complet** : le carré présente une majorité de "complet" au fil des années
 
 
-- **Neutre** : le carré a autant de "bien suivi" que de "mal suivi" sur la période concernée
+- **Neutre** : le carré a autant de "complet" que de "incomplet" sur la période concernée
 
 
-- **Plutôt mal suivi** : le carré présente une majorité de "mal suivi" au fil des années
+- **Incomplet** : le carré présente une majorité de "incomplet" au fil des années
 
 
-- **Mal suivi** : chaque année le carré est considéré comme mal suivi
+- **Très incomplet** : chaque année le carré est considéré comme incomplet
 
 ```{r, fig.width=6, fig.height=4}
 
@@ -457,23 +468,23 @@ statut_carre_stoc_ofb <- passage_stoc_ofb %>%
       max(Annee[passages_total > 0]),
       NA_real_),
     printemps = max(Annee),
-    bien_suivi = sum(classe_passage == "Bien suivi"),
-    mal_suivi = sum(classe_passage == "Mal suivi"),
+    bien_suivi = sum(classe_passage == "Complet"),
+    mal_suivi = sum(classe_passage == "Incomplet"),
     .groups = "drop") %>%
   mutate(statut = case_when(
     is.na(last_printemps) ~ "Jamais suivi",
     (max(printemps) - last_printemps) >= 2 ~ "Abandonné",
-    mal_suivi == 0 ~ "Bien suivi",
-    bien_suivi == 0 ~ "Mal suivi",
-    bien_suivi > mal_suivi ~ "Plutôt bien suivi",
-    bien_suivi < mal_suivi ~ "Plutôt mal suivi",
+    mal_suivi == 0 ~ "Très complet",
+    bien_suivi == 0 ~ "Très incomplet",
+    bien_suivi > mal_suivi ~ "Complet",
+    bien_suivi < mal_suivi ~ "Incomplet",
     TRUE ~ "Neutre"))
 
 tablo_suivi_carre_stoc_ofb <- statut_carre_stoc_ofb %>%
   st_set_geometry(NULL) %>%
   group_by(statut) %>%
   summarise(nb = n()) %>%
-  mutate(statut = factor(statut, levels = c("Bien suivi", "Plutôt bien suivi","Neutre","Plutôt mal suivi", "Mal suivi", "Abandonné", "Jamais suivi"))) %>%
+  mutate(statut = factor(statut, levels = c("Très complet", "Complet","Neutre","Incomplet", "Très incomplet", "Abandonné", "Jamais suivi"))) %>%
   arrange(statut)
 
 
@@ -564,12 +575,12 @@ ggplot(tablo_long_shoc_ofb, aes(x = Hiver, y = nb_passages, fill = periode)) +
 ```
 <br>
 
-En analysant les passages sur les périodes du protocole STOC, un état de suivi peut être déterminé :
+En analysant les passages sur les périodes du protocole SHOC, un état de suivi peut être déterminé :
+
+- **Complet** : lorsqu'un passage est effectué pendant chaque période (décembre et janvier).  
 
 
-- **Bien suivi** : lorsqu'un passage est effectué pendant chaque période (décembre, janvier). 
-
-- **Mal suivi** : lorsqu'il manque un passage pendant une des périodes obligatoires du protocole STOC.
+- **Incomplet** : lorsqu'il manque un passage pendant une des périodes obligatoires du protocole SHOC.
 
 
 - **Abandonné** : lorsque les dernières observations remontent à plus de 2 ans.
@@ -598,21 +609,17 @@ passage_shoc_ofb <- data_shoc %>%
     classe_passage = case_when(
       is.na(derniere_an_passage) ~ "Jamais suivi",
       (params$annee - derniere_an_passage) >= 2 ~ "Abandonné",
-      nb_passages_dec > 0 & nb_passages_janv > 0 ~ "Bien suivi",
-      TRUE ~ "Mal suivi"))
+      nb_passages_dec > 0 & nb_passages_janv > 0 ~ "Complet",
+      TRUE ~ "Incomplet"))
 
 
 
 
 
-ggplot(passage_shoc_ofb, aes(x = Hiver, y = Carre, fill = classe_passage)) +
+ggplot(passage_shoc_ofb, aes(x = Hiver, y = as.character(Carre), fill = classe_passage)) +
   geom_tile(color = "grey90") +
   scale_fill_manual(
-    values = c(
-      "Mal suivi" = "orange",
-      "Bien suivi" = "green",
-      "Abandonné" = "grey30"
-    ),
+    values = colors_suivi,
     name = "Suivi"
   ) +
   theme_minimal() +
@@ -640,19 +647,19 @@ ggplot(passage_shoc_ofb, aes(x = Hiver, y = Carre, fill = classe_passage)) +
 Une étude plus fine de l'état de suivi des carrés est présentée dans le tableau suivant. Les classes de l'état de suivi sont plus nuancées sur l'ensemble des années considérées :
 
 
-- **Bien suivi** : chaque année le carré est considéré comme bien suivi
+- **Très complet** : chaque année le carré est considéré comme complet 
 
 
-- **Plutôt bien suivi** : le carré présente une majorité de "bien suivi" au fil des années
+- **Complet** : le carré présente une majorité de "complet" au fil des années
 
 
-- **Neutre** : le carré a autant de "bien suivi" que de "mal suivi" sur la période concernée
+- **Neutre** : le carré a autant de "complet" que de "incomplet" sur la période concernée
 
 
-- **Plutôt mal suivi** : le carré présente une majorité de "mal suivi" au fil des années
+- **Incomplet** : le carré présente une majorité de "incomplet" au fil des années
 
 
-- **Mal suivi** : chaque année le carré est considéré comme mal suivi
+- **Très incomplet** : chaque année le carré est considéré comme incomplet
 
 ```{r, fig.width=6, fig.height=4}
 
@@ -667,16 +674,16 @@ statut_carre_shoc_ofb <- passage_shoc_ofb %>%
       max(Hiver[passages_total > 0]),
       NA_real_),
     hiver = max(Hiver),
-    bien_suivi = sum(classe_passage == "Bien suivi"),
-    mal_suivi = sum(classe_passage == "Mal suivi"),
+    bien_suivi = sum(classe_passage == "Complet"),
+    mal_suivi = sum(classe_passage == "Incomplet"),
     .groups = "drop") %>%
   mutate(statut = case_when(
     is.na(last_hiver) ~ "Jamais suivi",
     (max(hiver) - last_hiver) > 1 ~ "Abandonné",
-    mal_suivi == 0 ~ "Bien suivi",
-    bien_suivi == 0 ~ "Mal suivi",
-    bien_suivi > mal_suivi ~ "Plutôt bien suivi",
-    bien_suivi < mal_suivi ~ "Plutôt mal suivi",
+    mal_suivi == 0 ~ "Très complet",
+    bien_suivi == 0 ~ "Très incomplet",
+    bien_suivi > mal_suivi ~ "Complet",
+    bien_suivi < mal_suivi ~ "Incomplet",
     TRUE ~ "Neutre"))
 
 
@@ -684,7 +691,7 @@ tablo_suivi_carre_shoc_ofb <- statut_carre_shoc_ofb %>%
   st_set_geometry(NULL) %>%
   group_by(statut) %>%
   summarise(nb = n()) %>%
-  mutate(statut = factor(statut, levels = c("Bien suivi", "Plutôt bien suivi","Neutre","Plutôt mal suivi", "Mal suivi", "Abandonné","Jamais suivi"))) %>%
+  mutate(statut = factor(statut, levels = c("Très complet", "Complet","Neutre","Incomplet", "Très incomplet", "Abandonné","Jamais suivi"))) %>%
   arrange(statut)
 
 
@@ -935,7 +942,6 @@ stat_abond_shoc_ofb <- data_shoc %>%
 
 stat_abond_stoc_ofb <- data_stoc %>%
   st_set_geometry(NULL) %>%
-  filter(Source == "OFB") %>%
   group_by(Annee, Carre) %>%
   summarise(nb_ind = sum(Nombre), .groups = "drop") %>%
   group_by(Annee) %>%
@@ -1268,7 +1274,6 @@ carte_shoc <- ggplot() +
 ```{r, fig.width=10, fig.height=10}
 carte_shoc + tableau_shoc
 
-
 ```
 \newpage
 
@@ -1276,7 +1281,7 @@ carte_shoc + tableau_shoc
 
 ```{r}
 statut_carre_stoc_ofb$statut <- factor(statut_carre_stoc_ofb$statut,
-                                       levels = c("Bien suivi", "Plutôt bien suivi", "Neutre", "Plutôt mal suivi", "Mal suivi", "Abandonné"))
+                                       levels = c("Très complet", "Complet", "Neutre", "Incomplet", "Très incomplet", "Abandonné"))
 
 suivis_stoc <- ggplot() +
   
@@ -1311,7 +1316,7 @@ suivis_stoc <- ggplot() +
 
 ```{r}
 statut_carre_shoc_ofb$statut <- factor(statut_carre_shoc_ofb$statut,
-                                       levels = c("Bien suivi", "Plutôt bien suivi", "Neutre", "Plutôt mal suivi", "Mal suivi", "Abandonné"))
+                                       levels = c("Très complet", "Complet", "Neutre", "Incomplet", "Très incomplet", "Abandonné"))
 
 suivis_shoc <- ggplot() +
   

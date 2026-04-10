@@ -32,9 +32,9 @@ passage_stoc_ofb <- data_stoc %>%
   mutate(
     classe_passage = case_when(
       (params$annee - derniere_an_passage) >= 2 ~ "Abandonné",
-      nb_passages_mars > 0 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Bien suivi",
-      Annee < 2022 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Bien suivi",
-      TRUE ~ "Mal suivi"
+      nb_passages_mars > 0 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Complet",
+      Annee < 2022 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Complet",
+      TRUE ~ "Incomplet"
     )
   )
 
@@ -49,16 +49,16 @@ statut_carre_stoc_ofb <- passage_stoc_ofb %>%
       max(Annee[passages_total > 0]),
       NA_real_),
     printemps = max(Annee),
-    bien_suivi = sum(classe_passage == "Bien suivi"),
-    mal_suivi = sum(classe_passage == "Mal suivi"),
+    bien_suivi = sum(classe_passage == "Complet"),
+    mal_suivi = sum(classe_passage == "Incomplet"),
     .groups = "drop") %>%
   mutate(statut = case_when(
     is.na(last_printemps) ~ "Jamais suivi",
     (max(printemps) - last_printemps) >= 2 ~ "Abandonné",
-    mal_suivi == 0 ~ "Bien suivi",
-    bien_suivi == 0 ~ "Mal suivi",
-    bien_suivi > mal_suivi ~ "Plutôt bien suivi",
-    bien_suivi < mal_suivi ~ "Plutôt mal suivi",
+    mal_suivi == 0 ~ "Complet",
+    bien_suivi == 0 ~ "Incomplet",
+    bien_suivi > mal_suivi ~ "Plutôt complet",
+    bien_suivi < mal_suivi ~ "Plutôt incomplet",
     TRUE ~ "Neutre"))
 
 st_write(statut_carre_stoc_ofb, "processed_data/statut_stoc.gpkg", 
@@ -92,8 +92,8 @@ passage_shoc_ofb <- data_shoc %>%
     classe_passage = case_when(
       is.na(derniere_an_passage) ~ "Jamais suivi",
       (params$annee - derniere_an_passage) >= 2 ~ "Abandonné",
-      nb_passages_dec > 0 & nb_passages_janv > 0 ~ "Bien suivi",
-      TRUE ~ "Mal suivi"))
+      nb_passages_dec > 0 & nb_passages_janv > 0 ~ "Complet",
+      TRUE ~ "Incomplet"))
 
 
 statut_carre_shoc_ofb <- passage_shoc_ofb %>%
@@ -107,16 +107,16 @@ statut_carre_shoc_ofb <- passage_shoc_ofb %>%
       max(Hiver[passages_total > 0]),
       NA_real_),
     hiver = max(Hiver),
-    bien_suivi = sum(classe_passage == "Bien suivi"),
-    mal_suivi = sum(classe_passage == "Mal suivi"),
+    bien_suivi = sum(classe_passage == "Complet"),
+    mal_suivi = sum(classe_passage == "Incomplet"),
     .groups = "drop") %>%
   mutate(statut = case_when(
     is.na(last_hiver) ~ "Jamais suivi",
     (max(hiver) - last_hiver) > 1 ~ "Abandonné",
-    mal_suivi == 0 ~ "Bien suivi",
-    bien_suivi == 0 ~ "Mal suivi",
-    bien_suivi > mal_suivi ~ "Plutôt bien suivi",
-    bien_suivi < mal_suivi ~ "Plutôt mal suivi",
+    mal_suivi == 0 ~ "Complet",
+    bien_suivi == 0 ~ "Incomplet",
+    bien_suivi > mal_suivi ~ "Plutôt complet",
+    bien_suivi < mal_suivi ~ "Plutôt incomplet",
     TRUE ~ "Neutre"))
 
 st_write(statut_carre_shoc_ofb, "processed_data/statut_shoc.gpkg", 

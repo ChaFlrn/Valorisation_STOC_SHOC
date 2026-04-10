@@ -3,7 +3,10 @@
 ###---------------------------------------------------------#
 cli::cli_h1("Lire le fichier format .txt") 
 
-data_stoc <- read.table("raw_data/stoc_11032026.txt", 
+# Mettre votre extraction de données SHOC dans le dossier "raw_data".
+# Modifier le nom du fichier dans la ligne ci-dessous : 
+
+data_stoc <- read.table("raw_data/stoc_ofbplus.txt", 
                         header = TRUE, 
                         sep = "\t", 
                         quote = "",
@@ -23,24 +26,25 @@ STOC_verif <- data_stoc %>% #Vérifier le statut de validation des données
 data_stoc <- data_stoc %>%
   filter(Année < 2026,
          !Vérification %in% c("Refusée", "Incomplet", "Probablement incorrecte")) %>% #Supression des données non valides
-  mutate(Date = as.Date(Date, format = "%d.%m.%Y")) %>% #Formater la date en format Date
+  mutate(Date = as.Date(Date, format = "%d.%m.%Y"), #Formater la date en format Date
+         Agent = paste0(Prénom," ", Nom)) %>% 
   filter(Date >= as.Date(paste0(year(Date), "-03-01")) &
            Date <= as.Date(paste0(year(Date), "-06-15"))) %>% #Ne garder que les données comprises entre le 1er mars et le 15 juin
   select(Id = UUID,
-         Maille,
          Nom_espece = Nom.espèce,
          Nom_scientifique = Nom.scientifique,
          Nombre,
          Famille,
          Date,
          Annee = Année,
-         Type_localisation = Type.de.localisation,
          Insee_com = Code.INSEE,
          Commune,
          Departement = Département,
          Protocole,
-         Protection = Protégée,
-         Contributeur = Personne.morale,
+         Agent,
+         Carre = Nom.de.référence.national,
+         Contributeur = Abréviation.personne.morale,
+         Passage = Numéro.du.passage,
          X_lambert = X.Lambert93..m.,
          Y_lambert = Y.Lambert93..m.) #Sélection des colonnes à garder
 
@@ -56,3 +60,10 @@ cli::cli_h1("Vérifier les doublons")
 data_stoc <- data_stoc[!duplicated(data_stoc$Id), ]
 
 
+
+###---------------------------------------------------------#
+cli::cli_h1("Sauvegarder le fichier")
+
+st_write(data_stoc, "processed_data/data_stoc.gpkg", 
+         append = FALSE,
+         driver = "GPKG")
