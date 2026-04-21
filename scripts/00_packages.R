@@ -12,4 +12,5 @@ pacman::p_load(sf,
                flextable,
                pheatmap,
                gt,
-               gridExtra)
+               gridExtra, 
+               Hmisc)

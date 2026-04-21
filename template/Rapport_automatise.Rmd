@@ -32,18 +32,10 @@ library(readr)
 library(patchwork)
 library(flextable)
 library(lubridate)
-library(writexl)
-library(vegan)
-library(FSA)
-library(ggpubr)
-library(glmmTMB)
-library(ggeffects)
-library(VennDiagram)
 library(pheatmap)
-library(ggvenn)
-library(broom)
-library(ordinal)
 library(gt)
+library(gridExtra) 
+library(Hmisc)
 
 
 # Création des palettes de couleurs
@@ -67,6 +59,17 @@ colors_statut <- c(
   "Incomplet" = "#fb9418",
   "Très incomplet" = "#fb3518",
   "Nouveau" = "#51b3de"
+)
+
+colors_milieux <- c(
+  "Non renseigné" = "grey30",
+  "Buissons (ou jeune forêt < 5m de hauteur)" = "#A1EF22",
+  "Forêt (arbres > 5m de hauteur)" = "#447c00",
+  "Milieux agricoles" = "#FB9418",
+  "Milieux aquatiques" = "#51b3de",
+  "Milieux bâtis ou urbanisés" = "#CAA5B0",
+  "Pelouses, marais et landes" = "#CBF8B0",
+  "Rochers terrestres ou côtiers" = "grey80"
 )
 
 # Ouverture des fichiers utilisés dans le Rmarkdown
@@ -1107,6 +1110,322 @@ ggplot(graph_esp_shoc_ofb,
 
 
 ```
+
+\newpage
+
+# Analyse des habitats
+
+Dans chacun des protocoles, l'observateur doit recenser l'habitat du point ou transect d'écoute. Ces habitats sont définis par quatre niveaux : le milieu, le type d'habitat, la première catégorie ou sous-catégorie et la deuxième catégorie ou sous catégorie. Le niveau de détail est croissant avec le niveau, le milieu étant le niveau le moins détaillé. Pour la suite de l'analyse, seuls les deux premiers niveaux ont été conservés : le milieu et le type d'habitat.
+
+Le milieu se délcine en sept possibilités : Forêt (arbres >5m de haut), Buissons ou jeune forêt, Pelouses - marais et landes, Milieux agricoles, Milieux bâtis ou urbanisés, Milieux aquatiques, Rochers terrestres ou côtiers. 
+
+
+## Protocole STOC
+### Couverture des milieux
+
+
+```{r}
+milieu_princ <- data_stoc %>%
+  st_set_geometry(NULL) %>%
+  group_by(Annee, Milieu_1) %>%
+  summarise(nb_carre_m = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_m),
+         proportion_m = round(nb_carre_m / total_carre * 100,2),
+         Milieu_1 = ifelse(Milieu_1 == "", "Non renseigné", Milieu_1))
+
+milieu_sec <- data_stoc %>%
+  st_set_geometry(NULL) %>%
+  group_by(Annee, Milieu_2) %>%
+  summarise(nb_carre_m = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_m),
+         proportion_m = round(nb_carre_m / total_carre * 100,2),
+         Milieu_2 = ifelse(Milieu_2 == "", "Non renseigné", Milieu_2))
+
+```
+Le graphique ci-dessous représente la répartition des milieux présents dans les points d'écoute, de 2023 à 2025, pour le protocole STOC. Cela concerne exclusivement le milieu dit "principal" lors du relevé de terrain. 
+
+
+```{r, fig.width=12, fig.height=10}
+ggplot(milieu_princ, aes(x = Milieu_1, y = nb_carre_m, fill = Milieu_1)) +
+  geom_boxplot() +
+  scale_y_continuous(
+    breaks = seq(0, max(milieu_princ$nb_carre_m, na.rm = TRUE), by = 5)
+  ) +
+  scale_fill_manual(values = colors_milieux) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 10)) +
+  labs(
+    title = "Répartition des milieux principaux",
+    subtitle = "De 2023 à 2025, protocole STOC") +
+  ylab("Nombre de points d'écoute")  +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(hjust = 0.5, size = 12),
+    axis.title.x = element_blank(),
+    plot.title = element_text(face = "bold", size = 12),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "none"
+  )
+```
+
+### Répartition des habitats
+
+```{r}
+milieu_hab1 <- data_stoc %>%
+  group_by(Habitat_1, Milieu_1) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Habitat_1) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup %>%
+  st_set_geometry(NULL) %>%
+  mutate(Habitat_1 = ifelse(Habitat_1 == "","Non renseigné", Habitat_1),
+         Milieu_1 = ifelse(Milieu_1 == "","Non renseigné", Milieu_1))
+
+habitat_princ <- data_stoc %>%
+  st_set_geometry(NULL) %>%
+  group_by(Habitat_1) %>%
+  summarise(nb_carre_h = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_h),
+         proportion_h = round(nb_carre_h / total_carre * 100,2),
+         Habitat_1 = ifelse(Habitat_1 == "", "Non renseigné", Habitat_1)) %>%
+  left_join(milieu_hab1 %>%
+              select(Habitat_1, Milieu_1),
+            by = "Habitat_1") %>%
+  arrange(desc(proportion_h)) %>%
+  slice_head(n = 10)
+
+```
+
+Voici la répartition des habitats en fonction de leur pourcentage d'apparition dans les points d'écoute en tant qu'habitat principal, pour le protocole STOC. 
+
+```{r, fig.width=12, fig.height=6}
+ggplot(habitat_princ, aes(x = reorder(Habitat_1, proportion_h), y = proportion_h, fill = Milieu_1)) +
+  geom_col() +
+  scale_fill_manual(values = colors_milieux) +
+  coord_flip() +
+  labs(
+    x = "Type d'habitat",
+    y = "Occurence (en %)",
+    title = "Répartition des 10 habitats principaux",
+    subtitle = "Proportion toutes années confondues (de 2023 à 2025), Protocole STOC",
+    fill = "Type de milieu") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    plot.subtitle = element_text(size = 10),
+  )
+```
+
+
+### Relation entre les milieux et les espèces rencontrées
+
+Le graphique suivant recense les 5 espèces d'oiseaux les plus observées pour chaque milieu, pour le protocole STOC.
+
+```{r}
+esp_milieu <- data_stoc %>%
+  st_set_geometry(NULL) %>%
+  group_by(Milieu_1, Nom_espece) %>%
+  summarise(nb_obs = n()) %>%
+  filter(Milieu_1 != "") %>%
+  slice_max(nb_obs, n = 5, with_ties = FALSE) %>%
+  ungroup
+```
+
+```{r, fig.width=12, fig.height=12}
+ggplot() +
+  geom_col(data = esp_milieu, aes(x = Nom_espece, y = nb_obs, fill = Milieu_1), position = "dodge2", color = "black") +
+  scale_fill_manual(values = colors_milieux,
+                    name = "Type de milieu") +
+  geom_text(
+    data = esp_milieu,
+    aes(x = Nom_espece, y = nb_obs, label = nb_obs, group = Milieu_1),
+    position = position_dodge2(width = 0.9),
+    vjust = -0.5,
+    size = 3) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 10)) +
+  facet_wrap(~ Milieu_1, scales = "free") +
+  labs(
+    title = "Répartition du nombre d'observations par espèce en fonction du milieu",
+    subtitle = "Toutes années confondues, de 2023 à 2025, Protocole STOC",
+    y = "Nombre d'observations",
+    fill = "") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10),
+    axis.ticks.x = element_line(),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12),
+    axis.title.x = element_blank(),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    legend.text = element_text(size = 12),
+    strip.text = element_text(size = 10, face = "bold"),
+strip.background = element_rect(
+  fill = "grey90",
+  color = "black",
+  linewidth = 0.8
+),
+    legend.position = "none"
+  )
+```
+
+## Protocole SHOC
+### Couverture des milieux
+
+Le graphique ci-dessous représente la répartition des milieux présents dans les points d'écoute, de 2023 à 2025, pour le protocole SHOC. Cela concerne exclusivement le milieu dit "principal" lors du relevé de terrain. 
+
+```{r}
+milieu_princ <- data_shoc %>%
+  st_set_geometry(NULL) %>%
+   mutate(mois = month(Date), 
+          Hiver = if_else(mois == 1, Annee - 1, Annee),
+          mois_hiver = case_when(
+           mois == 12 ~ "décembre",
+           mois == 1 ~ "janvier")) %>%
+  group_by(Hiver, Milieu_1) %>%
+  summarise(nb_carre_m = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_m),
+         proportion_m = round(nb_carre_m / total_carre * 100,2),
+         Milieu_1 = ifelse(Milieu_1 == "", "Non renseigné", Milieu_1))
+
+milieu_sec <- data_shoc %>%
+  st_set_geometry(NULL) %>%
+   mutate(mois = month(Date), 
+          Hiver = if_else(mois == 1, Annee - 1, Annee),
+          mois_hiver = case_when(
+           mois == 12 ~ "décembre",
+           mois == 1 ~ "janvier")) %>%
+  group_by(Hiver, Milieu_2) %>%
+  summarise(nb_carre_m = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_m),
+         proportion_m = round(nb_carre_m / total_carre * 100,2),
+         Milieu_2 = ifelse(Milieu_2 == "", "Non renseigné", Milieu_2))
+
+```
+
+
+```{r, fig.width=12, fig.height=10}
+ggplot(milieu_princ, aes(x = Milieu_1, y = nb_carre_m, fill = Milieu_1)) +
+  geom_boxplot() +
+  scale_y_continuous(
+    breaks = seq(0, max(milieu_princ$nb_carre_m, na.rm = TRUE), by = 5)
+  ) +
+  scale_fill_manual(values = colors_milieux) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 10)) +
+  labs(
+    title = "Répartition des milieux principaux",
+    subtitle = "De 2023 à 2025, protocole SHOC") +
+  ylab("Nombre de points d'écoute") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(hjust = 0.5, size = 12),
+    axis.title.x = element_blank(),
+    plot.title = element_text(face = "bold", size = 12),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "none")
+  
+```
+
+### Répartition des habitats
+
+Voici la répartition des habitats en fonction de leur pourcentage d'apparition dans les points d'écoute en tant qu'habitat principal, pour le protocole SHOC.
+
+```{r}
+milieu_hab1 <- data_shoc %>%
+  group_by(Habitat_1, Milieu_1) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Habitat_1) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup %>%
+  st_set_geometry(NULL) %>%
+  mutate(Habitat_1 = ifelse(Habitat_1 == "","Non renseigné", Habitat_1),
+         Milieu_1 = ifelse(Milieu_1 == "","Non renseigné", Milieu_1))
+
+habitat_princ <- data_shoc %>%
+  st_set_geometry(NULL) %>%
+  group_by(Habitat_1) %>%
+  summarise(nb_carre_h = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_h),
+         proportion_h = round(nb_carre_h / total_carre * 100,2),
+         Habitat_1 = ifelse(Habitat_1 == "", "Non renseigné", Habitat_1)) %>%
+  left_join(milieu_hab1 %>%
+              select(Habitat_1, Milieu_1),
+            by = "Habitat_1") %>%
+  arrange(desc(proportion_h)) %>%
+  slice_head(n = 10)
+
+```
+
+
+```{r, fig.width=12, fig.height=6}
+ggplot(habitat_princ, aes(x = reorder(Habitat_1, proportion_h), y = proportion_h, fill = Milieu_1)) +
+  geom_col() +
+  scale_fill_manual(values = colors_milieux) +
+  coord_flip() +
+  labs(
+    x = "Type d'habitat",
+    y = "Occurence (en %)",
+    title = "Répartition des 10 habitats principaux",
+    subtitle = "Proportion toutes années confondues (de 2023 à 2025), Protocole SHOC",
+    fill = "Type de milieu") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 12),
+    plot.subtitle = element_text(size = 10),
+  )
+```
+
+
+### Relation entre les milieux et les espèces rencontrées
+
+Le graphique suivant recense les 5 espèces d'oiseaux les plus observées pour chaque milieu, pour le protocole SHOC.
+
+```{r}
+esp_milieu <- data_shoc %>%
+  st_set_geometry(NULL) %>%
+  group_by(Milieu_1, Nom_espece) %>%
+  summarise(nb_obs = n()) %>%
+  filter(Milieu_1 != "") %>%
+  slice_max(nb_obs, n = 5, with_ties = FALSE) %>%
+  ungroup
+```
+
+```{r, fig.width=12, fig.height=10}
+ggplot() +
+  geom_col(data = esp_milieu, aes(x = Nom_espece, y = nb_obs, fill = Milieu_1), position = "dodge2", color = "black") +
+  scale_fill_manual(values = colors_milieux,
+                    name = "Type de milieu") +
+  geom_text(
+    data = esp_milieu,
+    aes(x = Nom_espece, y = nb_obs, label = nb_obs, group = Milieu_1),
+    position = position_dodge2(width = 0.9),
+    vjust = -0.5,
+    size = 3) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 10)) +
+  facet_wrap(~ Milieu_1, scales = "free") +
+  labs(
+    title = "Répartition du nombre d'observations par espèce en fonction du milieu",
+    subtitle = "Toutes années confondues, de 2023 à 2025, Protocole SHOC",
+    y = "Nombre d'observations",
+    fill = "") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10),
+    axis.ticks.x = element_line(),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 12),
+    axis.title.x = element_blank(),
+    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    legend.text = element_text(size = 12),
+    strip.text = element_text(size = 10, face = "bold"),
+strip.background = element_rect(
+  fill = "grey90",
+  color = "black",
+  linewidth = 0.8
+),
+    legend.position = "none"
+  )
+```
 \newpage
 
 # Cartothèque
@@ -1348,11 +1667,21 @@ suivis_shoc <- ggplot() +
 ```
 
 ```{r, fig.width=10, fig.height=14}
-suivis_stoc / suivis_shoc
-
+suivis_stoc 
 ```
 
+```{r, fig.width=10, fig.height=14}
+suivis_shoc
+```
+
+
 \newpage
+
+## Mosaïque paysagère à l'échelle régionale
+
+```{r, fig.width=15, fig.height=10}
+knitr::include_graphics("figure/habitats.png")
+```
 
 # Conclusion
 

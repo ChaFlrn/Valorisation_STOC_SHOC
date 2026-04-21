@@ -30,7 +30,7 @@ source("scripts/01_importation_data_STOC.R")
 
 
 ##----------------------------------------------------------------------------##
-## 3. Lancement du rapport Word
+## 3. Lancement du rapport régional Word
 
 rmarkdown::render(input = "template/Rapport_automatise.Rmd",
                   output_file = paste0("../output/Valorisation_Regionale_STOC_SHOC.docx"))

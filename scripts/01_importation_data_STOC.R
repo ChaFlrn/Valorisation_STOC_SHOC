@@ -45,6 +45,10 @@ data_stoc <- data_stoc %>%
          Carre = Nom.de.référence.national,
          Contributeur = Abréviation.personne.morale,
          Passage = Numéro.du.passage,
+         Milieu_1 = Habitat.principal.1,
+         Habitat_1 = Habitat.principal.2,
+         Milieu_2 = Habitat.secondaire.1,
+         Habitat_2 = Habitat.secondaire.2,
          X_lambert = X.Lambert93..m.,
          Y_lambert = Y.Lambert93..m.) #Sélection des colonnes à garder
 
