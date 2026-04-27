@@ -34,3 +34,18 @@ source("scripts/01_importation_data_STOC.R")
 
 rmarkdown::render(input = "template/Rapport_automatise.Rmd",
                   output_file = paste0("../output/Valorisation_Regionale_STOC_SHOC.docx"))
+
+##----------------------------------------------------------------------------##
+## 4. Lancement des rapports départementaux Word
+
+list_dep <- c("16","17","19","23","24","33","40","47","64","79","86","87") #mettre tous les numéros des départements de la région concernée
+
+purrr:: map(.x = list_dep,   
+            .f = ~ 
+              rmarkdown::render(input = "template/Rapport_departemental.Rmd",
+                                output_file = paste0("../output/Rapport_SD-", .x, "_STOC_SHOC.docx"),
+                                params= list(dep = .x, 
+                                             stoc_fin = 2025,   #changer si besoin
+                                             stoc_debut = 2023,
+                                             shoc_fin = 2026,
+                                             shoc_debut = 2023)))  #changer si besoin

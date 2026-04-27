@@ -1,5 +1,1667 @@
 ---
-title: "Rapport_departemental"
-output: html_document
+title: "`r paste('Bilan départemental des protocoles STOC et SHOC - Service départemental', params$dep, sep = '\n')`"
+subtitle: "Données Faune France ~ Nouvelle-Aquitaine"
+author: "OFB DR Nouvelle-Aquitaine ~ Service régional Connaissance"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output:
+  word_document:
+    toc: true
+    toc_depth: 2
+    reference_doc: "reference_doc.docx"
+params:
+  stoc_fin: 2025
+  stoc_debut: 2023
+  shoc_fin: 2026
+  shoc_debut: 2023
+  dep: '79'
+toc-title: "Sommaire"
+
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE,
+                      fig.align = "center",  # figure centrée
+                      fig.retina = 4,      # Qualité des figures
+                      out.width = "100%",      # remplissage de la largeur
+                      dev = 'png',        # Format des figures
+                      cache = FALSE) 
+#Packages
+library(sf)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(readr)
+library(patchwork)
+library(flextable)
+library(lubridate)
+library(pheatmap)
+library(gt)
+library(gridExtra) 
+library(Hmisc)
+
+
+# Création des palettes de couleurs
+colors_protocoles <- c(
+  "STOC" = "#CAF5B0",
+  "STOC_EPS" = "#CAF5B0",
+  "SHOC" = "#DBB0F5")
+
+colors_suivi <- c(
+  "Jamais suivi" = "grey80",
+  "Abandonné" = "grey30",
+  "Complet" = "green",
+  "Incomplet" = "orange"
+)
+
+colors_statut <- c(
+  "Abandonné" = "black",
+  "Très complet" = "#447c00",
+  "Complet" = "#a1ef42",
+  "Neutre" = "#fff608",
+  "Incomplet" = "#fb9418",
+  "Très incomplet" = "#fb3518",
+  "Nouveau" = "#51b3de"
+)
+
+colors_milieux <- c(
+  "Non renseigné" = "grey30",
+  "Buissons (ou jeune forêt < 5m de hauteur)" = "#A1EF22",
+  "Forêt (arbres > 5m de hauteur)" = "#447c00",
+  "Milieux agricoles" = "#FB9418",
+  "Milieux aquatiques" = "#51b3de",
+  "Milieux bâtis ou urbanisés" = "#CAA5B0",
+  "Pelouses, marais et landes" = "#CBF8B0",
+  "Rochers terrestres ou côtiers" = "grey80"
+)
+
+# Ouverture des fichiers utilisés dans le Rmarkdown
+data_shoc <- st_read("../processed_data/data_shoc.gpkg")
+data_stoc <- st_read("../processed_data/data_stoc.gpkg")
+departement <- st_read("../assets/departements.gpkg") #couche polygones des départements de la région pour les cartes
+
+
+```
+
+\newpage
+
+# Introduction
+
+Les protocoles naturalistes **STOC (Suivi Temporel des Oiseaux Communs)** et **SHOC (Suivi Hivernal des Oiseaux Communs)** constituent des dispositifs de suivi de référence pour l'étude de l'avifaune, reposant sur la collecte standardisée d'observations de terrain. Ces protocoles permettent d'acquérir des données à long terme, indispensables pour analyser la dynamique des populations, la répartition des espèces et l'évolution de la biodiversité au fil du temps. 
+
+
+Dans ce contexte, ce rapport présente une analyse qualitative et quantitative des données acquises dans le cadre des protocoles STOC et SHOC au niveau départemental par les agents de l'Office français de la biodiversité (OFB). L'objectif principal est de valoriser ces données recueillies pour dynamiser le réseau régional de suivi et d'inciter à la formation de nouveaux agents volontaires ou de consolider les compétences des agents déjà en action. 
+
+# Présentation du jeu de données
+
+Les données sont issues de la démarche Faune-France, portail interassociatif de science participative, animé par la LPO en partenariat avec un réseau d’une cinquantaine d’associations de protection de la nature : https://www.faune-france.org. 
+*Date de l'extraction : 30/03/2026 (STOC et SHOC).*
+
+Les protocoles ont été extraits individuellement, sur la période temporelle de janvier 2022 à mars 2026 afin d'avoir l'hiver 2025/2026 complet pour le protocole SHOC. 
+
+***Les carrés sont rattachés au département correspondant aux deux premiers chiffres de l'identifiant. Ceci explique que certains carrés apparaissent dans un département différent car les observations sont totalement ou partiellement réalisées dans le département voisin limitrophe.***
+
+
+Voici le nombre d'observations enregistrées par les agents du service départemental.
+
+
+
+```{r, fig.width=6, fig.height=4}
+data_stoc_dept <- data_stoc %>%
+  mutate(insee_dep = substr(Insee_com, 1,2),
+         dep_carre = substr(Carre, 1,2))
+
+data_shoc_dept <- data_shoc %>%
+  mutate(insee_dep = substr(Insee_com, 1,2),
+         dep_carre = substr(Carre, 1,2))
+
+
+tablo_data_stoc <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  group_by(Protocole, Annee) %>%
+  summarise(nb_obs = n())
+  
+
+
+tablo_data_shoc <- data_shoc_dept %>%
+  mutate(mois = month(Date),
+         Hiver = if_else(mois == 1, Annee - 1, Annee)) %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  group_by(Protocole, Hiver) %>%
+  summarise(nb_obs = n()) %>%
+  mutate(Annee = Hiver) %>%
+  select(-Hiver)
+
+  
+tablo_data <- rbind(tablo_data_stoc,
+                    tablo_data_shoc) %>%
+  pivot_wider(
+    names_from = Annee,
+    values_from = nb_obs,
+    values_fill = 0  # remplace les NA par 0 si besoin
+  )
+
+
+# Créer tableau pour rapport
+tablo_data <- tablo_data %>%
+  mutate(across(where(is.numeric), ~ format(., big.mark = " ", decimal.mark = ",", scientific = FALSE, trim = TRUE)))
+
+flextable(tablo_data) %>%
+  theme_vanilla() %>%
+  color(part = "header", color = "white") %>%
+  bg(part = "header", bg = "#333333") %>%
+  bold(part = "header") %>% 
+  align(j = colnames(tablo_data), align = "center", part = "all") %>% 
+  fontsize(part = "header", size = 10) %>%
+  fontsize(part = "body", size = 9) %>%
+  autofit()
+```
+
+\newpage
+
+# Analyse des carrés
+## Evolution du nombre de carrés
+
+Le graphique ci-dessous représente l'évolution du nombre de carrés par an, en fonction du protocole (STOC et SHOC).
+Pour rappel, pour le protocole SHOC, un hiver correspond au mois de décembre de l'année n et de janvier de l'année n+1.
+
+```{r, fig.width=6, fig.height=4}
+graph_carres_stoc <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  group_by(dep_carre, Annee) %>%
+  summarise(nb_ofb = n_distinct(Carre),
+            nb_obs = n_distinct(Agent)) %>%
+  mutate(Type = "STOC")
+
+graph_carres_shoc <- data_shoc_dept %>%
+  st_set_geometry(NULL) %>%
+  mutate(mois = month(Date),
+         Hiver = if_else(mois == 1, Annee - 1, Annee)) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  group_by(dep_carre, Hiver) %>%
+  summarise(nb_ofb = n_distinct(Carre),
+            nb_obs = n_distinct(Agent)) %>%
+  mutate(Type = "SHOC",
+         Annee = Hiver) %>%
+  select(-Hiver)
+
+graph_carres <- rbind(graph_carres_shoc,
+                      graph_carres_stoc)
+
+graph_carres <- graph_carres %>%
+  filter(!nb_ofb == 0)
+
+ggplot() +
+  geom_col(data = graph_carres, aes(x = Annee, y = nb_ofb, fill = Type), position = "dodge2", color = "black") +
+  scale_y_continuous(breaks = seq(0, max(graph_carres$nb_ofb), by = 2)) +
+  scale_x_continuous(breaks = seq(min(graph_carres$Annee), max(graph_carres$Annee), by = 1)) +
+  scale_fill_manual(values = colors_protocoles,
+                    name = "Protocole") +
+  geom_text(
+    data = graph_carres,
+    aes(x = Annee, y = nb_ofb, label = nb_ofb, group = Type),
+    position = position_dodge2(width = 0.9),
+    vjust = -0.3,
+    size = 3) +
+  labs(
+    title = "Evolution du nombre de carrés STOC et SHOC par an",
+    x = "Année (ou Hiver pour SHOC)",
+    y = "Nombre de carrés",
+    fill = "") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 10),
+    axis.ticks.x = element_line(),
+    axis.text.y = element_text(size = 10),
+    axis.title = element_text(size = 10),
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+    legend.text = element_text(size = 10),
+    legend.position = "right")
+```
+
+
+## Evolution du nombre d'observateur
+
+Le tableau ci-dessous représente l'évolution du nombre d'observateurs et de carrés dans le département depuis `r params$stoc_debut`.
+
+
+*Pour rappel, Les carrés sont rattachés au département correspondant aux deux premiers chiffres de l'identifiant.* 
+
+
+```{r}
+table_large <- graph_carres %>%
+  mutate(Carre = nb_ofb,
+         Observateurs = nb_obs) %>%
+  select(-dep_carre,
+         -nb_ofb,
+         -nb_obs) %>%
+  pivot_longer(cols = c(Carre, Observateurs),
+               names_to = "Nombre de",
+               values_to = "valeur") %>%
+  pivot_wider(id_cols = c(Type, `Nombre de`),
+              names_from = Annee, values_from = valeur)
+
+flextable(table_large) %>%
+  set_header_labels(
+    Type = "Protocole") %>%
+  theme_vanilla() %>%
+  color(part = "header", color = "white") %>%
+  bg(part = "header", bg = "#333333") %>%
+  bold(part = "header") %>% 
+  align(j = colnames(table_large), align = "center", part = "all") %>% 
+  fontsize(part = "header", size = 10) %>%
+  fontsize(part = "body", size = 9) %>%
+  autofit()
+```
+
+\newpage
+
+## Effort de prospection et suivi des carrés
+### STOC
+
+Le graphique ci-dessous représente le nombre de passages effectués par les **agents OFB** dans leur carré en fonction des trois périodes définies dans le protocole STOC :
+
+
+- période 1 (mars) : du 1er au 31 mars
+
+
+- période 2 (avril) : du 1er avril au 8 mai
+
+
+- période 3 (mai) : du 9 mai au 15 juin 
+
+
+```{r, fig.width=6, fig.height=4}
+passage_stoc_ofb <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+   filter(dep_carre == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  mutate(Printemps = paste0("Printemps_", Annee)) %>%
+  group_by(Carre, Printemps) %>%
+  summarise(
+    nb_passages_mars = n_distinct(
+      Date[Date >= as.Date(paste0(Annee, "-03-01")) & 
+        Date <= as.Date(paste0(Annee, "-03-31"))]),
+    
+    nb_passages_avril = n_distinct(
+      Date[Date >= as.Date(paste0(Annee, "-04-01")) &
+        Date <= as.Date(paste0(Annee, "-05-08"))]),
+    
+    nb_passages_mai = n_distinct(
+      Date[Date > as.Date(paste0(Annee, "-05-08")) &
+        Date <= as.Date(paste0(Annee, "-06-15"))]),
+    
+    .groups = "drop") 
+
+
+tablo_passage_stoc_ofb <- passage_stoc_ofb %>%
+  group_by(Printemps) %>%
+  summarise(passage_mars = sum(nb_passages_mars),
+            passage_avril = sum(nb_passages_avril),
+            passage_mai = sum(nb_passages_mai))
+
+
+tablo_long_ofb <- tablo_passage_stoc_ofb %>%
+  pivot_longer(
+    cols = starts_with("passage_"),
+    names_to = "periode",
+    values_to = "nb_passages") %>%
+  mutate(nb_passages = as.integer(nb_passages),
+         annee = substr(Printemps, 11, 14),
+         periode = factor(periode,
+                          levels = c("passage_mars", "passage_avril","passage_mai"),
+                          labels = c("Mars", "Avril", "Mai")))
+
+
+ggplot(tablo_long_ofb, aes(x = annee, y = nb_passages, fill = periode)) +
+  geom_col(width = 0.5, color = "grey30") +
+  labs(
+    title = "Nombre total de passages STOC par période printanière",
+    subtitle = "Agrégation annuelle des passages (mars, avril/mai et mai/juin)",
+    x = "Printemps",
+    y = "Nombre de passages",
+    fill = "Période") +
+  geom_text(aes(label = ifelse(nb_passages > 0, nb_passages, NA)),
+            position = position_stack(vjust = 0.5),
+            size = 3,
+            color = "black") +
+  scale_fill_manual(values = c("Mars" = "#B5A4C8",
+                               "Avril" = "#F4C2C3",
+                               "Mai" = "#9ED9A0")) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.05)),
+    labels = scales::label_number(big.mark = " ")) +
+  
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(size = 10),
+    axis.title = element_text(face = "bold", size = 10),
+    plot.title = element_text(face = "bold", size = 11),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "top",
+    legend.title = element_text(face = "bold"),
+    panel.grid.major.x = element_blank()
+  )
+
+```
+
+\newpage
+
+En analysant les passages sur les périodes du protocole STOC, un état de suivi peut être déterminé :
+
+
+- **Complet** : lorsqu'un passage est effectué pendant chaque période (mars, avril/mai et mai/juin).  
+
+
+- **Incomplet** : lorsqu'il manque un passage pendant une des périodes obligatoires du protocole STOC.
+
+
+- **Abandonné** : lorsque les dernières observations remontent à plus de 2 ans.
+
+```{r, fig.width=6, fig.height=6}
+passage_stoc_ofb <- data_stoc_dept %>%
+   filter(dep_carre == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  mutate(
+    Printemps = paste0("Printemps_", Annee),
+    passage_mars  = Date >= as.Date(paste0(Annee, "-03-01")) &
+                    Date <= as.Date(paste0(Annee, "-03-31")),
+    passage_avril = Date >= as.Date(paste0(Annee, "-04-01")) &
+                    Date <= as.Date(paste0(Annee, "-05-08")),
+    passage_mai   = Date >  as.Date(paste0(Annee, "-05-08")) &
+                    Date <= as.Date(paste0(Annee, "-06-15"))
+  ) %>%
+  group_by(Carre, Printemps, Annee) %>%
+  summarise(
+    nb_passages_mars  = n_distinct(Date[passage_mars]),
+    nb_passages_avril = n_distinct(Date[passage_avril]),
+    nb_passages_mai   = n_distinct(Date[passage_mai]),
+    .groups = "drop"
+  ) %>%
+  group_by(Carre) %>%
+  mutate(
+    derniere_an_passage = ifelse(
+      any(nb_passages_mars + nb_passages_avril + nb_passages_mai > 0),
+      max(Annee[nb_passages_mars + nb_passages_avril + nb_passages_mai > 0], na.rm = TRUE),
+      NA_integer_
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(
+    classe_passage = case_when(
+      (params$stoc_debut - derniere_an_passage) >= 2 ~ "Abandonné",
+      nb_passages_mars > 0 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Complet",
+      Annee < 2022 & nb_passages_avril > 0 & nb_passages_mai > 0 ~ "Complet",
+      TRUE ~ "Incomplet"
+    )
+  )
+
+
+ggplot(passage_stoc_ofb, aes(x = Printemps, y = as.character(Carre), fill = classe_passage)) +
+  geom_tile(color = "grey90") +
+  scale_fill_manual(
+    values = colors_suivi,
+    name = "Suivi"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 10),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(),
+    axis.text.x = element_text(size = 10),
+    legend.text = element_text(size = 10),
+    legend.title = element_blank(),
+    legend.position = "bottom",
+    plot.title = element_text(size = 11, hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(size = 10, hjust = 0.5)) +
+  labs(
+    title = "Suivi des carrés STOC par printemps",
+    x = "",
+    y = "Carré "
+  )
+
+```
+
+### SHOC
+
+Le graphique ci-dessous représente le nombre de passages effectués par les **agents de l'OFB** dans leur carré pour le protocole SHOC durant la période hivernale.
+
+<br>
+
+```{r, fig.width=6, fig.height=4}
+passage_shoc_ofb <- data_shoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+   mutate(mois = month(Date), 
+          Hiver = if_else(mois == 1, Annee - 1, Annee),
+          mois_hiver = case_when(
+           mois == 12 ~ "décembre",
+           mois == 1 ~ "janvier")) %>%
+  group_by(Carre, Hiver) %>%
+  summarise(nb_passages_dec = n_distinct(Date[mois_hiver == "décembre"]),
+            nb_passages_janv = n_distinct(Date[mois_hiver == "janvier"]), .groups = "drop")
+
+
+tablo_passage_shoc_ofb <- passage_shoc_ofb %>%
+  group_by(Hiver) %>%
+  summarise(passage_dec = sum(nb_passages_dec),
+            passage_janv = sum(nb_passages_janv))
+
+
+tablo_long_shoc_ofb <- tablo_passage_shoc_ofb %>%
+  pivot_longer(
+    cols = starts_with("passage_"),
+    names_to = "periode",
+    values_to = "nb_passages") %>%
+  mutate(nb_passages = as.integer(nb_passages),
+         periode = factor(periode,
+                          levels = c("passage_dec", "passage_janv"),
+                          labels = c("Décembre", "Janvier")))
+
+
+ggplot(tablo_long_shoc_ofb, aes(x = Hiver, y = nb_passages, fill = periode)) +
+  geom_col(width = 0.5, color = "grey30") +
+  labs(
+    title = "Nombre total de passages SHOC par période hivernale",
+    subtitle = "Agrégation annuelle des passages (décembre, janvier)",
+    x = "Hivers",
+    y = "Nombre de passages",
+    fill = "Période") +
+  geom_text(aes(label = ifelse(nb_passages > 0, nb_passages, NA)),
+            position = position_stack(vjust = 0.5),
+            size = 3,
+            color = "black") +
+  scale_fill_manual(values = c("Décembre" = "#B5A4C8",
+                               "Janvier" = "#9ED9A0")) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0, 0.05)),
+    labels = scales::label_number(big.mark = " ")) +
+  scale_x_continuous(
+    breaks = sort(unique(tablo_long_shoc_ofb$Hiver))) +
+  theme_minimal(base_size = 13) +
+  theme(
+    axis.text.x = element_text(size = 10),
+    axis.title = element_text(face = "bold", size = 10),
+    plot.title = element_text(face = "bold", size = 11),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "top",
+    legend.title = element_text(face = "bold", size = 10),
+    panel.grid.major.x = element_blank()
+  )
+
+```
+<br>
+
+En analysant les passages sur les périodes du protocole SHOC, un état de suivi peut être déterminé :
+
+- **Complet** : lorsqu'un passage est effectué pendant chaque période (décembre et janvier).  
+
+
+- **Incomplet** : lorsqu'il manque un passage pendant une des périodes obligatoires du protocole SHOC.
+
+
+- **Abandonné** : lorsque les dernières observations remontent à plus de 2 ans.
+
+```{r, fig.width=6, fig.height=6}
+passage_shoc_ofb <- data_shoc_dept %>%
+  mutate(mois = month(Date)) %>%
+  filter(mois %in% c(12,1),
+         dep_carre == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  mutate(Hiver = if_else(mois == 1, Annee - 1, Annee),
+         mois_hiver = case_when(
+           mois == 12 ~ "décembre",
+           mois == 1 ~ "janvier")) %>%
+  group_by(Carre, Hiver) %>%
+  summarise(nb_passages_dec = n_distinct(Date[mois_hiver == "décembre"]),
+            nb_passages_janv = n_distinct(Date[mois_hiver == "janvier"]), .groups = "drop") %>%
+  group_by(Carre) %>%
+  mutate(
+    derniere_an_passage = ifelse(
+      any(nb_passages_dec + nb_passages_janv > 0),
+      max(Hiver[nb_passages_dec + nb_passages_janv > 0], na.rm = TRUE),
+      NA_integer_
+    )
+  ) %>%
+  ungroup() %>%
+  mutate(
+    classe_passage = case_when(
+      is.na(derniere_an_passage) ~ "Jamais suivi",
+      (params$shoc_debut - derniere_an_passage) >= 2 ~ "Abandonné",
+      nb_passages_dec > 0 & nb_passages_janv > 0 ~ "Complet",
+      TRUE ~ "Incomplet"))
+
+
+
+
+
+ggplot(passage_shoc_ofb, aes(x = Hiver, y = as.character(Carre), fill = classe_passage)) +
+  geom_tile(color = "grey90") +
+  scale_fill_manual(
+    values = colors_suivi,
+    name = "Suivi"
+  ) +
+  theme_minimal() +
+  theme(axis.text.y = element_text(size = 10),
+    axis.ticks.y = element_blank(),
+    panel.grid = element_blank(),
+    axis.text.x = element_text(size = 10),
+    legend.text = element_text(size = 10),
+    legend.title = element_blank(),
+    legend.position = "bottom",
+    plot.title = element_text(size = 11, hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(size = 10, hjust = 0.5)) +
+  labs(
+    title = "Suivi des carrés SHOC par hiver",
+    x = "",
+    y = "Carré "
+  )
+
+```
+
+\newpage
+
+
+# Analyse des espèces
+## Richesse spécifique
+
+La richesse spécifique est représentée au fil des années et pour chaque protocole.Cette richesse n'est calculée qu'à partir des données des carrés des agents de l'OFB. 
+**Elle ne reflète pas une tendance départementale.** 
+
+*Les traits verticaux représentent les écart-types, ils n'apparaissent que lorsqu'il y a au moins 2 carrés suivis.*
+
+```{r, fig.width=6, fig.height=4}
+rich_an_shoc_ofb <- data_shoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  mutate(mois = month(Date)) %>%
+  mutate(Hiver = if_else(mois == 1, Annee - 1, Annee)) %>%
+  group_by(Hiver, Carre, Protocole) %>%
+  summarise(rich = n_distinct(Nom_scientifique), .groups = "drop") %>%
+  mutate(Annee = Hiver) %>%
+  select(-Hiver) %>%
+  group_by(Annee, Protocole) %>%
+  summarise(rich_moy = round(mean(rich),2),
+            sd_moy = round(sd(rich),2), .groups = "drop")
+
+rich_an_stoc_ofb <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  group_by(Annee, Carre, Protocole) %>%
+  summarise(rich = n_distinct(Nom_scientifique), .groups = "drop") %>%
+  group_by(Annee, Protocole) %>%
+  summarise(rich_moy = round(mean(rich),2),
+            sd_moy = round(sd(rich),2), .groups = "drop")
+
+rich_an_ofb <- rbind(rich_an_stoc_ofb, rich_an_shoc_ofb)
+
+
+ggplot(rich_an_ofb, aes(x = Annee, y = rich_moy, fill = Protocole)) +
+  geom_col(color = "grey30", width = 0.5,
+           position = position_dodge(width = 0.5)) +
+  
+  geom_errorbar(aes(ymin = rich_moy - sd_moy,
+                    ymax = rich_moy + sd_moy),
+                width = 0.2,
+                position = position_dodge(width = 0.5)) +
+  
+  geom_text(aes(label = rich_moy),
+            vjust = -0.5,
+            size = 3,
+            fontface = "bold",
+            position = position_dodge(width = 0.5)) +
+  
+  labs(
+    title = "Distribution de la richesse spécifique moyenne \npar carré et par année",
+    x = "Année",
+    y = "Nombre d'espèces différentes",
+    fill = "Protocole") +
+  
+  scale_fill_manual(values = colors_protocoles) +
+  scale_x_continuous(breaks = sort(unique(rich_an_ofb$Annee))) +
+  
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 11, hjust = 0.5),
+    axis.title = element_text(size = 10, face = "bold"),
+    axis.text = element_text(size = 10),
+    legend.position = "right",
+    legend.text = element_text(size = 10),
+    legend.title = element_blank())
+```
+<br>
+
+Le tableau ci-dessous dresse les moyennes annuelles et écart-types de la richesse spécifique de `r params$stoc_debut` à `r params$stoc_fin`.
+
+```{r}
+rich_an_stoc_ofb <- rich_an_stoc_ofb %>%
+  mutate(rich_moy_stoc = rich_moy,
+         sd_moy_stoc = sd_moy) %>%
+  select(Annee,
+         rich_moy_stoc,
+         sd_moy_stoc)
+
+rich_an_shoc_ofb <- rich_an_shoc_ofb %>%
+  mutate(rich_moy_shoc = rich_moy,
+         sd_moy_shoc = sd_moy) %>%
+  select(Annee,
+         rich_moy_shoc,
+         sd_moy_shoc)
+
+tablo_rich_ofb <- rich_an_stoc_ofb %>%
+  left_join(rich_an_shoc_ofb,
+            by = "Annee") %>%
+  mutate(Annee = as.character(Annee))
+
+moy_rich_stoc_ofb <- round(mean(rich_an_stoc_ofb$rich_moy_stoc),2)
+sd_rich_stoc_ofb <- round(sd(rich_an_stoc_ofb$rich_moy_stoc),2)
+moy_rich_shoc_ofb <- round(mean(rich_an_shoc_ofb$rich_moy_shoc),2)
+sd_rich_shoc_ofb <- round(sd(rich_an_shoc_ofb$rich_moy_shoc),2)
+
+
+
+# Créer tableau pour rapport
+tablo_rich_ofb <- tablo_rich_ofb %>%
+  mutate(across(where(is.numeric), ~ format(., big.mark = " ", decimal.mark = ",", scientific = FALSE, trim = TRUE)))
+
+flextable(tablo_rich_ofb) %>%
+  set_header_labels(
+    Annee = "Année \n(Hiver pour SHOC)",
+    rich_moy_stoc = "Moyenne richesse \nspécifique par carré \nSTOC",
+    sd_moy_stoc = "Ecart-type STOC",
+    rich_moy_shoc = "Moyenne richesse \nspécifique par carré \nSHOC",
+    sd_moy_shoc = "Ecart-type SHOC") %>%
+  theme_vanilla() %>%
+  color(part = "header", color = "white") %>%
+  bg(part = "header", bg = "#333333") %>%
+  bold(part = "header") %>% 
+  align(j = colnames(tablo_rich_ofb), align = "center", part = "all") %>% 
+  fontsize(part = "header", size = 9) %>%
+  fontsize(part = "body", size = 8) %>%
+  autofit()
+```
+
+
+\newpage
+
+
+## Abondance
+
+Le graphique ci-dessous représente le nombre d'espèces en fonction de leurs effectifs cumulés sur la période concernée.
+
+
+```{r, fig.width=6, fig.height=4}
+data_shoc_stoc_dept <- rbind(data_shoc_dept,
+                             data_stoc_dept)
+
+abondance_esp_ofb <- data_shoc_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep) %>%
+  group_by(Protocole, Nom_espece) %>%
+  summarise(effectif_total = sum(Nombre, na.rm = TRUE), .groups = "drop")
+
+histo_abond_ofb <- abondance_esp_ofb %>%
+  mutate(classe = cut(effectif_total,
+                      breaks = c(0,100,200,500,1000,Inf),
+                      right = FALSE,
+                      labels = c("0-99","100-199","200-499","500-999","+1000"))) %>%
+  group_by(Protocole, classe) %>%
+  summarise(nb_esp = n_distinct(Nom_espece), .groups = "drop") %>%
+  ungroup()
+
+ggplot(histo_abond_ofb, aes(x = classe, y = nb_esp, fill = Protocole)) +
+  geom_col(position = position_dodge(width = 0.8), color = "black", width = 0.8) +
+  geom_text(aes(label = nb_esp),
+            vjust = -0.5,
+            size = 2.5,
+            fontface = "bold",
+            position = position_dodge(width = 0.8)) +
+  labs(
+    title = "Distribution des espèces par classe d'effectifs \net par protocole",
+    x = "Nombre d'individus par espèce",
+    y = "Nombre d'espèces",
+    fill = "Protocole") +
+  scale_fill_manual(values = colors_protocoles) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 11, hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    axis.title = element_text(size = 10, face = "bold"),
+    axis.text.x = element_text(size = 10),
+    legend.position = "bottom")
+
+```
+<br>
+
+Le tableau ci-dessous dresse l'abondance annuelle moyenne par carré et par protocole. 
+```{r}
+
+stat_abond_shoc_ofb <- data_shoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  mutate(mois = month(Date)) %>%
+  mutate(Hiver = if_else(mois == 1, Annee - 1, Annee)) %>%
+  group_by(Hiver, Carre) %>%
+  summarise(nb_ind = sum(Nombre), .groups = "drop") %>%
+  group_by(Hiver) %>%
+  summarise(moy_shoc = round(mean(nb_ind),2),
+            sd_shoc = round(sd(nb_ind),2), .groups = "drop") %>%
+  ungroup() %>%
+  mutate(Annee = Hiver)
+
+stat_abond_stoc_ofb <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  group_by(Annee, Carre) %>%
+  summarise(nb_ind = sum(Nombre), .groups = "drop") %>%
+  group_by(Annee) %>%
+  summarise(moy_stoc = round(mean(nb_ind),2),
+            sd_stoc = round(sd(nb_ind),2), .groups = "drop") %>%
+  ungroup()
+
+
+stat_abond_ofb <- stat_abond_stoc_ofb %>%
+ left_join(stat_abond_shoc_ofb,
+           by = "Annee") %>%
+  mutate(Annee = as.character(Annee)) %>%
+  select(-Hiver)
+
+mean_abond_stoc_ofb <- round(mean(stat_abond_ofb$moy_stoc),2)
+sd_abond_stoc_ofb <- round(sd(stat_abond_ofb$moy_stoc),2)
+mean_abond_shoc_ofb <- round(mean(stat_abond_ofb$moy_shoc),2)
+sd_abond_shoc_ofb <- round(sd(stat_abond_ofb$moy_shoc),2)
+
+# Créer tableau pour rapport
+stat_abond_ofb <- stat_abond_ofb %>%
+  mutate(across(where(is.numeric), ~ format(., big.mark = " ", decimal.mark = ",", scientific = FALSE, trim = TRUE)))
+
+flextable(stat_abond_ofb) %>%
+  set_header_labels(
+    Annee = "Année \n(Hiver pour SHOC)",
+    moy_stoc = "Moyenne abondance \npar carré STOC",
+    sd_stoc = "Ecart-type STOC",
+    moy_shoc = "Moyenne abondance \npar carré SHOC",
+    sd_shoc = "Ecart-type SHOC") %>%
+  theme_vanilla() %>%
+  color(part = "header", color = "white") %>%
+  bg(part = "header", bg = "#333333") %>%
+  bold(part = "header") %>% 
+  align(j = colnames(stat_abond_ofb), align = "center", part = "all") %>% 
+  fontsize(part = "header", size = 9) %>%
+  fontsize(part = "body", size = 8) %>%
+  autofit()
+
+
+```
+
+
+\newpage
+
+## Top 10 des espèces
+### STOC
+
+Classement des 10 espèces les plus observées par les agents dans le département, lors des observations concernant les protocoles STOC et SHOC pour la période `r params$stoc_debut` - `r params$stoc_fin`. 
+L'occurence correspond au pourcentage d'apparition de l'espèce dans un carré. 
+
+```{r}
+
+graph_esp_stoc_ofb <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  mutate(total_carres = n_distinct(Carre)) %>%
+  group_by(Nom_espece) %>%
+  summarise(nb_carres = n_distinct(Carre),
+            nb_obs = n(),
+            nb_ind = sum(Nombre),
+            total = first(total_carres),
+            .groups = "drop") %>%
+  mutate(Ratio = (nb_carres / total) * 100) %>%
+  arrange(desc(Ratio)) %>%
+  slice_head(n = 10)
+
+plot_stoc <- ggplot(graph_esp_stoc_ofb,
+       aes(x = fct_reorder(Nom_espece, Ratio), y = Ratio)) +
+
+  geom_col(fill = "#CAF5B0", width = 0.7) +
+
+  geom_text(aes(label = paste0(round(Ratio,2)," %")),
+            hjust = -0.1,
+            size = 3) +
+
+  coord_flip() +
+
+  labs(
+    title = "Fréquence des espèces détectées dans les carrés STOC",
+    x = "Espèce",
+    y = "Occurrence (%)"
+  ) +
+
+  scale_y_continuous(
+    expand = expansion(mult = c(0,0.1))
+  ) +
+
+  theme_minimal() +
+
+  theme(
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 10),
+    axis.title.y = element_blank(),
+    panel.grid.major.y = element_blank()
+  )
+
+
+```
+
+```{r}
+graph_esp_shoc_ofb <- data_shoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  mutate(mois = month(Date),
+         Hiver = if_else(mois == 1, Annee - 1, Annee)) %>%
+  mutate(total_carres = n_distinct(Carre)) %>%
+  group_by(Nom_espece) %>%
+  summarise(nb_carres = n_distinct(Carre),
+            nb_obs = n(),
+            nb_ind = sum(Nombre),
+            total = first(total_carres),
+            .groups = "drop") %>%
+  mutate(Ratio = (nb_carres / total) * 100) %>%
+  arrange(desc(Ratio)) %>%
+  slice_head(n = 10)
+
+plot_shoc <- ggplot(graph_esp_shoc_ofb,
+       aes(x = fct_reorder(Nom_espece, Ratio), y = Ratio)) +
+
+  geom_col(fill = "#DBB0F5", width = 0.7) +
+
+  geom_text(aes(label = paste0(round(Ratio,2)," %")),
+            hjust = -0.1,
+            size = 3) +
+
+  coord_flip() +
+
+  labs(
+    title = "Fréquence des espèces détectées dans les carrés SHOC",
+    x = "Espèce",
+    y = "Occurrence (%)"
+  ) +
+
+  scale_y_continuous(
+    expand = expansion(mult = c(0,0.1))
+  ) +
+
+  theme_minimal() +
+
+  theme(
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 10),
+    axis.title.y = element_blank(),
+    panel.grid.major.y = element_blank()
+  )
+
+
+```
+
+```{r,  fig.width=6, fig.height=4}
+plot_stoc / plot_shoc
+
+```
+\newpage
+
+# Analyse des habitats
+
+Dans chacun des protocoles, l'observateur doit recenser l'habitat du point ou transect d'écoute. Ces habitats sont définis par quatre niveaux : le milieu, le type d'habitat, la première catégorie ou sous-catégorie et la deuxième catégorie ou sous catégorie. Le niveau de détail est croissant avec le niveau, le milieu étant le niveau le moins détaillé. Pour la suite de l'analyse, seuls les deux premiers niveaux ont été conservés : le milieu et le type d'habitat.
+
+Le milieu se délcine en sept possibilités : Forêt (arbres >5m de haut), Buissons ou jeune forêt, Pelouses - marais et landes, Milieux agricoles, Milieux bâtis ou urbanisés, Milieux aquatiques, Rochers terrestres ou côtiers. 
+
+
+## Protocole STOC
+### Couverture des milieux
+
+
+```{r}
+milieu_princ <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  group_by(Annee, Milieu_1) %>%
+  summarise(nb_carre_m = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_m),
+         proportion_m = round(nb_carre_m / total_carre * 100,2),
+         Milieu_1 = ifelse(Milieu_1 == "", "Non renseigné", Milieu_1))
+```
+Le graphique ci-dessous représente la répartition des milieux présents dans les points d'écoute, de 2023 à 2025, pour le protocole STOC. Cela concerne exclusivement le milieu dit "principal" lors du relevé de terrain. 
+
+
+```{r, fig.width=6, fig.height=4}
+ggplot(milieu_princ, aes(x = Milieu_1, y = nb_carre_m, fill = Milieu_1)) +
+  geom_boxplot() +
+  scale_y_continuous(
+    breaks = seq(0, max(milieu_princ$nb_carre_m, na.rm = TRUE), by = 1)
+  ) +
+  scale_fill_manual(values = colors_milieux) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 10)) +
+  labs(
+    title = "Répartition des milieux principaux",
+    subtitle = paste0("De ", params$stoc_debut, " à ", params$stoc_fin, ", protocole STOC")) +
+  ylab("Nombre de points d'écoute")  +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(hjust = 0.5, size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 10),
+    plot.title = element_text(face = "bold", size = 11),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "none"
+  )
+```
+
+\newpage
+
+### Répartition des habitats
+
+```{r}
+milieu_hab1 <- data_stoc_dept %>%
+  group_by(Habitat_1, Milieu_1) %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Habitat_1) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup %>%
+  st_set_geometry(NULL) %>%
+  mutate(Habitat_1 = ifelse(Habitat_1 == "","Non renseigné", Habitat_1),
+         Milieu_1 = ifelse(Milieu_1 == "","Non renseigné", Milieu_1))
+
+habitat_princ <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  group_by(Habitat_1) %>%
+  summarise(nb_carre_h = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_h),
+         proportion_h = round(nb_carre_h / total_carre * 100,2),
+         Habitat_1 = ifelse(Habitat_1 == "", "Non renseigné", Habitat_1)) %>%
+  left_join(milieu_hab1 %>%
+              select(Habitat_1, Milieu_1),
+            by = "Habitat_1") %>%
+  arrange(desc(proportion_h)) %>%
+  slice_head(n = 10)
+
+```
+
+Voici la répartition des habitats en fonction de leur pourcentage d'apparition dans les points d'écoute en tant qu'habitat principal, pour le protocole STOC. 
+
+```{r, fig.width=8, fig.height=4}
+ggplot(habitat_princ, aes(x = reorder(Habitat_1, proportion_h), y = proportion_h, fill = Milieu_1)) +
+  geom_col() +
+  scale_fill_manual(values = colors_milieux) +
+  coord_flip() +
+  labs(
+    x = "Type d'habitat",
+    y = "Occurence (en %)",
+    title = "Répartition des 10 habitats principaux",
+    subtitle = paste0("Proportion toutes années confondues (de ", params$stoc_debut, " à ", params$stoc_fin, "), Protocole STOC"),
+    fill = "Type de milieu") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 11),
+    plot.subtitle = element_text(size = 10),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 10),
+    legend.text = element_text(size = 10)
+  )
+```
+
+
+### Relation entre les milieux et les espèces rencontrées
+
+Le graphique suivant recense les 5 espèces d'oiseaux les plus observées pour chaque milieu, pour le protocole STOC.
+
+```{r}
+esp_milieu <- data_stoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  group_by(Milieu_1, Nom_espece) %>%
+  summarise(nb_obs = n()) %>%
+  filter(Milieu_1 != "") %>%
+  slice_max(nb_obs, n = 5, with_ties = FALSE) %>%
+  ungroup
+```
+
+```{r, fig.width=10, fig.height=4}
+ggplot() +
+  geom_col(data = esp_milieu, aes(x = Nom_espece, y = nb_obs, fill = Milieu_1), position = "dodge2", color = "black") +
+  scale_fill_manual(values = colors_milieux,
+                    name = "Type de milieu") +
+  geom_text(
+    data = esp_milieu,
+    aes(x = Nom_espece, y = nb_obs, label = nb_obs, group = Milieu_1),
+    position = position_dodge2(width = 0.9),
+    vjust = -0.5,
+    size = 2.5) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 10)) +
+  facet_wrap(~ Milieu_1, scales = "free") +
+  labs(
+    title = "Répartition du nombre d'observations \npar espèce en fonction du milieu",
+    subtitle = paste0("Toutes années confondues (de ", params$stoc_debut, " à ", params$stoc_fin, "), Protocole STOC"),
+    y = "Nombre d'observations",
+    fill = "") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.ticks.x = element_line(),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 10),
+    axis.title.x = element_blank(),
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    legend.text = element_text(size = 10),
+    strip.text = element_text(size = 8, face = "bold"),
+strip.background = element_rect(
+  fill = "grey90",
+  color = "black",
+  linewidth = 0.8
+),
+    legend.position = "none"
+  )
+```
+
+## Protocole SHOC
+### Couverture des milieux
+
+Le graphique ci-dessous représente la répartition des milieux présents dans les points d'écoute, de 2023 à 2025, pour le protocole SHOC. Cela concerne exclusivement le milieu dit "principal" lors du relevé de terrain. 
+
+```{r}
+milieu_princ <- data_shoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+   mutate(mois = month(Date), 
+          Hiver = if_else(mois == 1, Annee - 1, Annee),
+          mois_hiver = case_when(
+           mois == 12 ~ "décembre",
+           mois == 1 ~ "janvier")) %>%
+  group_by(Hiver, Milieu_1) %>%
+  summarise(nb_carre_m = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_m),
+         proportion_m = round(nb_carre_m / total_carre * 100,2),
+         Milieu_1 = ifelse(Milieu_1 == "", "Non renseigné", Milieu_1))
+
+milieu_sec <- data_shoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+   mutate(mois = month(Date), 
+          Hiver = if_else(mois == 1, Annee - 1, Annee),
+          mois_hiver = case_when(
+           mois == 12 ~ "décembre",
+           mois == 1 ~ "janvier")) %>%
+  group_by(Hiver, Milieu_2) %>%
+  summarise(nb_carre_m = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_m),
+         proportion_m = round(nb_carre_m / total_carre * 100,2),
+         Milieu_2 = ifelse(Milieu_2 == "", "Non renseigné", Milieu_2))
+
+```
+
+
+```{r, fig.width=6, fig.height=4}
+ggplot(milieu_princ, aes(x = Milieu_1, y = nb_carre_m, fill = Milieu_1)) +
+  geom_boxplot() +
+  scale_y_continuous(
+    breaks = seq(0, max(milieu_princ$nb_carre_m, na.rm = TRUE), by = 1)
+  ) +
+  scale_fill_manual(values = colors_milieux) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 10)) +
+  labs(
+    title = "Répartition des milieux principaux",
+    subtitle = paste0("De ", params$shoc_debut, " à ", params$stoc_fin, ", Protocole SHOC")) +
+  ylab("Nombre de transect") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(hjust = 0.5, size = 10),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 10),
+    plot.title = element_text(face = "bold", size = 10),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "none")
+  
+```
+\newpage
+
+### Répartition des habitats
+
+Voici la répartition des habitats en fonction de leur pourcentage d'apparition dans les points d'écoute en tant qu'habitat principal, pour le protocole SHOC.
+
+```{r}
+milieu_hab1 <- data_shoc_dept %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  group_by(Habitat_1, Milieu_1) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Habitat_1) %>%
+  slice_max(n, n = 1, with_ties = FALSE) %>%
+  ungroup %>%
+  st_set_geometry(NULL) %>%
+  mutate(Habitat_1 = ifelse(Habitat_1 == "","Non renseigné", Habitat_1),
+         Milieu_1 = ifelse(Milieu_1 == "","Non renseigné", Milieu_1))
+
+habitat_princ <- data_shoc_dept %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  st_set_geometry(NULL) %>%
+  group_by(Habitat_1) %>%
+  summarise(nb_carre_h = n_distinct(Carre)) %>%
+  mutate(total_carre = sum(nb_carre_h),
+         proportion_h = round(nb_carre_h / total_carre * 100,2),
+         Habitat_1 = ifelse(Habitat_1 == "", "Non renseigné", Habitat_1)) %>%
+  left_join(milieu_hab1 %>%
+              select(Habitat_1, Milieu_1),
+            by = "Habitat_1") %>%
+  arrange(desc(proportion_h)) %>%
+  slice_head(n = 10)
+
+```
+
+
+```{r, fig.width=8, fig.height=4}
+ggplot(habitat_princ, aes(x = reorder(Habitat_1, proportion_h), y = proportion_h, fill = Milieu_1)) +
+  geom_col() +
+  scale_fill_manual(values = colors_milieux) +
+  coord_flip() +
+  labs(
+    x = "Type d'habitat",
+    y = "Occurence (en %)",
+    title = "Répartition des 10 habitats principaux",
+    subtitle = paste0("Proportion toutes années confondues (de ", params$shoc_debut, " à ", params$stoc_fin, "), Protocole SHOC"),
+    fill = "Type de milieu") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 11),
+    plot.subtitle = element_text(size = 10),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 10),
+    legend.text = element_text(size = 10)
+  )
+```
+
+
+### Relation entre les milieux et les espèces rencontrées
+
+Le graphique suivant recense les 5 espèces d'oiseaux les plus observées pour chaque milieu, pour le protocole SHOC.
+
+```{r}
+esp_milieu <- data_shoc_dept %>%
+  st_set_geometry(NULL) %>%
+  filter(insee_dep == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  group_by(Milieu_1, Nom_espece) %>%
+  summarise(nb_obs = n()) %>%
+  filter(Milieu_1 != "") %>%
+  slice_max(nb_obs, n = 5, with_ties = FALSE) %>%
+  ungroup
+```
+
+```{r, fig.width=10, fig.height=4}
+ggplot() +
+  geom_col(data = esp_milieu, aes(x = Nom_espece, y = nb_obs, fill = Milieu_1), position = "dodge2", color = "black") +
+  scale_fill_manual(values = colors_milieux,
+                    name = "Type de milieu") +
+  geom_text(
+    data = esp_milieu,
+    aes(x = Nom_espece, y = nb_obs, label = nb_obs, group = Milieu_1),
+    position = position_dodge2(width = 0.9),
+    vjust = -0.5,
+    size = 2.5) +
+  scale_x_discrete(labels = \(x) stringr::str_wrap(x, width = 10)) +
+  facet_wrap(~ Milieu_1, scales = "free") +
+  labs(
+    title = "Répartition du nombre d'observations \npar espèce en fonction du milieu",
+    subtitle = paste0("Toutes années confondues (de ", params$shoc_debut, " à ", params$stoc_fin, "), Protocole SHOC"),
+    y = "Nombre d'observations",
+    fill = "") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 8),
+    axis.ticks.x = element_line(),
+    axis.text.y = element_text(size = 10),
+    axis.title.y = element_text(size = 10),
+    axis.title.x = element_blank(),
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 10, hjust = 0.5),
+    legend.text = element_text(size = 10),
+    strip.text = element_text(size = 8, face = "bold"),
+strip.background = element_rect(
+  fill = "grey90",
+  color = "black",
+  linewidth = 0.8
+),
+    legend.position = "none"
+  )
+```
+\newpage
+
+# Cartothèque
+
+## Répartition des carrés à l'échelle régionale
+### STOC
+***Les points oranges représentent des points d'écoute d'un carré attribué dans le département limitrophe.***
+```{r}
+tablo_dep <- data_stoc_dept %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$stoc_debut & Annee <= params$stoc_fin) %>%
+  group_by(dep_carre) %>%
+  summarise(nb_carre = n_distinct(Carre),
+            nb_obs = n_distinct(Agent)) %>%
+  arrange(desc(nb_carre))
+
+tableau <- tablo_dep %>%
+  st_set_geometry(NULL) %>%
+  gt() %>%
+
+  cols_label(
+    dep_carre = "Département",
+    nb_carre = "Nombre de carrés",
+    nb_obs = "Nombre d'agents"
+  ) %>%
+
+  fmt_number(
+    columns = c(nb_carre,nb_obs),
+    sep_mark = " ",
+    decimals = 0
+  ) %>%
+
+  cols_align(
+    align = "center",
+    columns = c(dep_carre,nb_carre,nb_obs)
+  ) %>%
+
+  tab_style(
+    style = list(
+      cell_fill(color = "#333333"),
+      cell_text(color = "white", weight = "bold")
+    ),
+    locations = cells_column_labels()
+  ) %>%
+
+  cols_width(
+    dep_carre ~ px(140),
+    nb_carre ~ px(100)
+  ) %>%
+
+  tab_options(
+    table.font.size = 12,
+    data_row.padding = px(4),
+    table.border.top.width = px(2),
+    table.border.bottom.width = px(2)
+  )
+
+```
+
+```{r}
+p_zoom <- ggplot() +
+  geom_sf(data = departement, fill = "grey90", color = "grey60") +
+
+  geom_sf(data = departement %>% filter(INSEE_DEP == params$dep),
+          fill = "#8CCB3F", color = "white", linewidth = 0.8) +
+  
+  theme_void()
+```
+
+```{r}
+dep_cible <- departement %>% filter(INSEE_DEP == params$dep)
+
+point_hors_dep <- data_stoc_dept %>%
+  filter(insee_dep == params$dep,
+         dep_carre != params$dep)
+
+p_main <- ggplot() +
+  geom_sf(data = dep_cible, fill = "grey90", color = "#8CCB3F") +
+  
+  geom_sf(data = tablo_dep,
+          color = "#8CCB3F",
+          size = 2,
+          alpha = 0.8) +
+  
+  geom_sf(data = point_hors_dep,
+          color = "orange",
+          size = 2,
+          alpha = 0.8) +
+
+  coord_sf(expand = TRUE) +
+
+labs(
+    title = paste0("Localisation des points d'écoute, SD ", params$dep),
+    subtitle = paste0("Protocole STOC, de ", params$stoc_debut, " à ", params$stoc_fin)) +
+
+  theme_minimal() +
+
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white", color = "black", linewidth = 0.8))
+```
+
+```{r}
+carte_stoc <- p_main +
+  inset_element(p_zoom,
+                left = 0.65, bottom = 0.05,
+                right = 2, top = 0.4) +
+  theme(
+    panel.background = element_rect(fill = "white", color = "black", linewidth = 0.8))
+  
+```
+
+```{r, fig.width=10, fig.height=8}
+carte_stoc + tableau
+```
+
+\newpage
+
+### SHOC
+***Les points oranges représentent des transects d'un carré attribué dans le département limitrophe.***
+
+```{r}
+tablo_dep_shoc <- data_shoc_dept %>%
+  filter(dep_carre == params$dep,
+         Annee >= params$shoc_debut & Annee <= params$shoc_fin) %>%
+  group_by(dep_carre) %>%
+  summarise(nb_carre = n_distinct(Carre),
+            nb_obs = n_distinct(Agent)) %>%
+  arrange(desc(nb_carre))
+
+tableau_shoc <- tablo_dep_shoc %>%
+    st_set_geometry(NULL) %>%
+
+  gt() %>%
+
+  cols_label(
+    dep_carre = "Département",
+    nb_carre = "Nombre de carrés",
+    nb_obs = "Nombre d'agents"
+  ) %>%
+
+  fmt_number(
+    columns = c(nb_carre,nb_obs),
+    sep_mark = " ",
+    decimals = 0
+  ) %>%
+
+  cols_align(
+    align = "center",
+    columns = c(dep_carre,nb_carre, nb_obs)
+  ) %>%
+
+  tab_style(
+    style = list(
+      cell_fill(color = "#333333"),
+      cell_text(color = "white", weight = "bold")
+    ),
+    locations = cells_column_labels()
+  ) %>%
+
+  cols_width(
+    dep_carre ~ px(140),
+    nb_carre ~ px(100)
+  ) %>%
+
+  tab_options(
+    table.font.size = 12,
+    data_row.padding = px(4),
+    table.border.top.width = px(2),
+    table.border.bottom.width = px(2)
+  )
+
+```
+
+```{r}
+p_zoom <- ggplot() +
+  geom_sf(data = departement, fill = "grey90", color = "grey60") +
+
+  geom_sf(data = departement %>% filter(INSEE_DEP == params$dep),
+          fill = "#9D4EDD", color = "white", linewidth = 0.8) +
+  
+  theme_void()
+```
+
+```{r}
+dep_cible <- departement %>% filter(INSEE_DEP == params$dep)
+
+point_hors_dep <- data_shoc_dept %>%
+  filter(insee_dep == params$dep,
+         dep_carre != params$dep)
+
+p_main <- ggplot() +
+  geom_sf(data = dep_cible, fill = "grey90", color = "#9D4EDD") +
+  
+  geom_sf(data = tablo_dep_shoc,
+          color = "#9D4EDD",
+          size = 2,
+          alpha = 0.8) +
+
+  geom_sf(data = point_hors_dep,
+          color = "orange",
+          size = 2,
+          alpha = 0.8) +
+  
+  coord_sf(expand = TRUE) +
+
+labs(
+    title = paste0("Localisation des points d'écoute, SD ", params$dep),
+    subtitle = paste0("Protocole SHOC, de ", params$shoc_debut, " à ", params$stoc_fin)) +
+
+  theme_minimal() +
+
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white", color = "black", linewidth = 0.8))
+```
+
+```{r}
+carte_shoc <- p_main +
+  inset_element(p_zoom,
+                left = 0.65, bottom = 0.05,
+                right = 2, top = 0.4) +
+  theme(
+    panel.background = element_rect(fill = "white", color = "black", linewidth = 0.8))
+  
+  
+```
+
+
+```{r, fig.width=10, fig.height=8}
+carte_shoc + tableau_shoc
+```
+
+\newpage
+
+
+## Suivi des carrés STOC et SHOC
+
+```{r}
+p_zoom <- ggplot() +
+  geom_sf(data = departement, fill = "grey90", color = "grey60") +
+
+  geom_sf(data = departement %>% filter(INSEE_DEP == params$dep),
+          fill = "#51b3de", color = "white", linewidth = 0.8) +
+  
+  theme_void()
+```
+
+```{r}
+statut_carre_stoc_ofb <- passage_stoc_ofb %>%
+  mutate(passages_total = (nb_passages_mars + nb_passages_avril + nb_passages_mai)) %>%
+  group_by(Carre) %>%
+  summarise(
+    n_printemps_total = n(),
+    n_passages_total = sum(passages_total),
+    last_printemps = ifelse(
+      any(passages_total > 0),
+      max(Annee[passages_total > 0]),
+      NA_real_),
+    printemps = max(Annee),
+    bien_suivi = sum(classe_passage == "Complet"),
+    mal_suivi = sum(classe_passage == "Incomplet"),
+    .groups = "drop") %>%
+  mutate(statut = case_when(
+    is.na(last_printemps) ~ "Jamais suivi",
+    (max(printemps) - last_printemps) >= 2 ~ "Abandonné",
+    mal_suivi == 0 ~ "Complet",
+    bien_suivi == 0 ~ "Incomplet",
+    bien_suivi > mal_suivi ~ "Complet",
+    bien_suivi < mal_suivi ~ "Incomplet",
+    TRUE ~ "Neutre"))
+
+statut_carre_shoc_ofb <- passage_shoc_ofb %>%
+  mutate(passages_total = (nb_passages_dec + nb_passages_janv)) %>%
+  group_by(Carre) %>%
+  summarise(
+    n_hiver_total = n(),
+    n_passages_total = sum(passages_total),
+    last_hiver = ifelse(
+      any(passages_total > 0),
+      max(Hiver[passages_total > 0]),
+      NA_real_),
+    hiver = max(Hiver),
+    bien_suivi = sum(classe_passage == "Complet"),
+    mal_suivi = sum(classe_passage == "Incomplet"),
+    .groups = "drop") %>%
+  mutate(statut = case_when(
+    is.na(last_hiver) ~ "Jamais suivi",
+    (max(hiver) - last_hiver) > 1 ~ "Abandonné",
+    mal_suivi == 0 ~ "Complet",
+    bien_suivi == 0 ~ "Incomplet",
+    bien_suivi > mal_suivi ~ "Complet",
+    bien_suivi < mal_suivi ~ "Incomplet",
+    TRUE ~ "Neutre"))
+```
+
+
+```{r}
+dep_cible <- departement %>% filter(INSEE_DEP == params$dep)
+statut_carre_stoc_ofb$statut <- factor(statut_carre_stoc_ofb$statut,
+                                       levels = c("Complet", "Neutre",  "Incomplet", "Abandonné"))
+
+
+statut_carre_shoc_ofb$statut <- factor(statut_carre_shoc_ofb$statut,
+                                       levels = c("Complet", "Neutre", "Incomplet", "Abandonné"))
+
+
+p_stoc <- ggplot() +
+  geom_sf(data = dep_cible, fill = "grey90", color = "#51b3de") +
+  
+  geom_sf(data = statut_carre_stoc_ofb,
+          aes(color = statut),
+          size = 2,
+          alpha = 0.8) +
+  
+scale_color_manual(
+    values = colors_statut) +
+  
+  coord_sf(expand = TRUE) +
+
+labs(
+    title = paste0("Suivi des carrés, SD ", params$dep),
+    subtitle = paste0("Protocole STOC, de ", params$stoc_debut, " à ", params$stoc_fin)) +
+
+  theme_minimal() +
+
+  theme(
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    legend.position = "none",
+    panel.background = element_rect(fill = "white", color = "#8CCB3F", linewidth = 1.5)) 
+```
+
+```{r}
+dummy <- data.frame(
+  statut = factor(
+    c("Complet", "Neutre", "Incomplet", "Abandonné"),
+    levels = c("Complet", "Neutre", "Incomplet", "Abandonné")
+  )
+)
+
+p_shoc <- ggplot() +
+  geom_sf(data = dep_cible, fill = "grey90", color = "#51b3de") +
+  
+  geom_sf(data = statut_carre_shoc_ofb,
+          aes(color = statut),
+          size = 2,
+          alpha = 0.8) +
+  
+  geom_point(
+  data = dummy,
+  aes(color = statut),
+  x = NA, y = NA,
+  alpha = 0,
+  inherit.aes = FALSE
+) +
+  
+scale_color_manual(
+    values = colors_statut,
+    name = "Statut de suivi",
+    limits = c("Complet", "Neutre", "Incomplet", "Abandonné"),
+    drop = FALSE) +
+  
+  coord_sf(expand = TRUE) +
+
+labs(
+    subtitle = paste0("Protocole SHOC, de ", params$shoc_debut, " à ", params$stoc_fin)) +
+
+  theme_minimal() +
+  
+  guides(color = guide_legend(override.aes = list(alpha = 1, size = 3))) +
+
+  theme(
+    plot.subtitle = element_text(size = 12, hjust = 0.5),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = "white", color = "#9D4EDD", linewidth = 1.5),
+    legend.background = element_rect(color = "black", linewidth = 0.5))
+```
+
+
+```{r, fig.width=10, fig.height=10}
+p_stoc + p_shoc
+```
+
+\newpage
+
+## Mosaïque paysagère à l'échelle régionale
+
+```{r, fig.width=15, fig.height=10}
+knitr::include_graphics(
+  paste0("figure/atlas_habitat_SD_", params$dep,".png"))
+```
+
+# Conclusion
+
+Ce rapport permet de dresser un bref état des lieux départemental des données STOC/SHOC recueillies par les agents de l'OFB. L'évolution du nombre de carrés suivis, tant pour le STOC que pour le SHOC, témoigne d'un engagement des agents.
+Les protocoles STOC et SHOC constituent des leviers pour le suivi aviaire en Nouvelle-Aquitaine. Leur pérennité et leur amélioration continue dépendront de la mobilisation collective et de la qualité des données produites.
